@@ -1,0 +1,75 @@
+:root {
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  /* Google Color Palette */
+  --google-blue: #4285f4;
+  --google-blue-dark: #1a73e8;
+  --google-blue-light: #e8f0fe;
+  --google-white: #ffffff;
+  --google-gray-50: #f8f9fa;
+  --google-gray-100: #f1f3f4;
+  --google-gray-200: #e8eaed;
+  --google-gray-300: #dadce0;
+  --google-gray-400: #bdc1c6;
+  --google-gray-500: #9aa0a6;
+  --google-gray-600: #80868b;
+  --google-gray-700: #5f6368;
+  --google-gray-800: #3c4043;
+  --google-gray-900: #202124;
+  --google-red: #ea4335;
+  --google-red-dark: #d33b2c;
+
+  color: var(--google-gray-900);
+  background-color: var(--google-white);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  font-weight: 500;
+  color: var(--google-blue);
+  text-decoration: inherit;
+}
+a:hover {
+  color: var(--google-blue-dark);
+  text-decoration: underline;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  width: 100%;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 2em;
+  line-height: 1.3;
+  font-weight: 400;
+}
+
+button {
+  border-radius: 4px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+* {
+  box-sizing: border-box;
+}
