@@ -478,7 +478,7 @@ const UserDetailView = ({ user, tournaments, loadingTournaments, onBack, onViewT
 );
 
 const NotificationView = () => {
-  const [users, setUsers] = useState([])
+  const [users, setUsers] = useState({ org: [], teams: [] })
   const [loadingUsers, setLoadingUsers] = useState(false)
   const [recipientType, setRecipientType] = useState('all') // 'all' or 'specific'
   const [selectedUserIds, setSelectedUserIds] = useState([])
@@ -508,68 +508,60 @@ const NotificationView = () => {
   const fetchNotificationUsers = async () => {
     setLoadingUsers(true)
     setIsUsingFallback(false)
-    addLog('info', 'Fetching recipient list...')
+    addLog('info', 'Fetching recipients from Supabase...')
+    
     try {
-      const response = await fetch('/get-users').catch(err => {
-        if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
-          addLog('error', 'Connection failed: Backend server not reachable')
-          throw new Error('Backend server not reachable')
-        }
-        throw err
-      })
-      
-      addLog('response', `GET /get-users returned status ${response.status}`)
-      const responseText = await response.text()
-      
-      if (!response.ok) {
-        addLog('error', `API error (${response.status})`, responseText)
-        // Fallback to direct Supabase query if backend API fails
-        console.warn(`Backend /get-users failed with ${response.status}. Attempting direct Supabase fallback.`);
-        setIsUsingFallback(true)
-        addLog('info', 'Attempting direct Supabase fallback for user list...')
-        const { data, error } = await supabase
+      // Fetch both profiles and team_profiles in parallel from Supabase
+      const [{ data: profiles, error: pError }, { data: teams, error: tError }] = await Promise.all([
+        supabase
           .from('profiles')
-          .select('id, username, display_name')
-          .order('username', { ascending: true })
-        
-        if (error) {
-          addLog('error', 'Supabase fallback failed', error.message)
-          throw new Error(`API failed (${response.status}) and Supabase fallback failed: ${error.message}`)
-        }
-        addLog('success', `Fetched ${data?.length || 0} users via Supabase fallback`)
-        setUsers(data || [])
-        return
+          .select('*')
+          .order('username', { ascending: true }),
+        supabase
+          .from('team_profiles')
+          .select('*')
+          .order('name', { ascending: true })
+      ])
+
+      if (pError) {
+        addLog('error', 'Failed to fetch profiles from Supabase', pError.message)
+      }
+      if (tError) {
+        addLog('error', 'Failed to fetch team profiles from Supabase', tError.message)
       }
 
-      if (!responseText) {
-        addLog('info', 'Recipient list is empty')
-        setUsers([])
-        return
+      const formattedProfiles = (profiles || []).map(u => ({ 
+        ...u, 
+        id: u.id,
+        display_name: u.display_name || u.username || u.emails || 'Unknown User',
+        is_team: false 
+      }))
+      const formattedTeams = (teams || []).map(t => ({
+        id: t.id,
+        display_name: t.name || 'Unnamed Team',
+        is_team: true
+      }))
+
+      addLog('success', `Fetched ${formattedProfiles.length} users and ${formattedTeams.length} teams from Supabase`)
+      setUsers({ org: formattedProfiles, teams: formattedTeams })
+
+      // Optional: still try to fetch from API in background if needed, 
+      // but we already have the primary data from Supabase as requested
+      /* 
+      try {
+        const response = await fetch('/get-users')
+        if (response.ok) {
+          const apiData = await response.json()
+          // Update if API has more data...
+        }
+      } catch (e) {
+        // Ignore API errors for recipient list since we have Supabase data
       }
-      
-      const data = JSON.parse(responseText)
-      addLog('success', `Fetched ${Array.isArray(data) ? data.length : 0} users via API`)
-      setUsers(Array.isArray(data) ? data : [])
+      */
+
     } catch (err) {
       addLog('error', `Failed to fetch recipients: ${err.message}`)
       console.error('Error fetching notification users:', err)
-      
-      // Try one last direct Supabase fallback if fetch failed entirely
-      try {
-        setIsUsingFallback(true)
-        addLog('info', 'Final Supabase fallback attempt...')
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('id, username, display_name')
-        if (!error && data) {
-          addLog('success', `Recovered ${data.length} users via fallback`)
-          setUsers(data)
-          return
-        }
-      } catch (fErr) {
-        addLog('error', 'All recipient fetch attempts failed')
-      }
-
       setStatus({ type: 'error', message: `Recipient list error: ${err.message}` })
     } finally {
       setLoadingUsers(false)
@@ -588,12 +580,33 @@ const NotificationView = () => {
       return
     }
 
+    if (recipientType === 'all_org' && users.org.length === 0) {
+      setStatus({ type: 'error', message: 'No users found in Org section' })
+      return
+    }
+
+    if (recipientType === 'all_teams' && users.teams.length === 0) {
+      setStatus({ type: 'error', message: 'No teams found in Teams section' })
+      return
+    }
+
     setSending(true)
     setStatus({ type: '', message: '' })
 
     try {
+      let finalUserIds = []
+      if (recipientType === 'all') {
+        finalUserIds = 'all'
+      } else if (recipientType === 'all_org') {
+        finalUserIds = users.org.map(u => u.id)
+      } else if (recipientType === 'all_teams') {
+        finalUserIds = users.teams.map(t => t.id)
+      } else {
+        finalUserIds = selectedUserIds
+      }
+
       const payload = {
-        user_ids: recipientType === 'all' ? 'all' : selectedUserIds,
+        user_ids: finalUserIds,
         title: title.trim() || undefined,
         message: message.trim()
       }
@@ -663,6 +676,23 @@ const NotificationView = () => {
     )
   }
 
+  const getPreviewAppName = () => {
+    if (recipientType === 'all_teams') return 'LazarFlow Teams'
+    if (recipientType === 'all_org') return 'LazarFlow'
+    if (recipientType === 'all') return 'LazarFlow'
+
+    if (recipientType === 'specific') {
+      const hasTeams = selectedUserIds.some(id => users.teams.some(t => t.id === id))
+      const hasOrg = selectedUserIds.some(id => users.org.some(u => u.id === id))
+      
+      if (hasTeams && !hasOrg) return 'LazarFlow Teams'
+      if (hasOrg && !hasTeams) return 'LazarFlow'
+      if (hasTeams && hasOrg) return 'LazarFlow / Teams'
+    }
+    
+    return 'LazarFlow'
+  }
+
   return (
     <div className="notification-management">
       <div className="notification-header">
@@ -685,14 +715,28 @@ const NotificationView = () => {
                 className={`recipient-type-btn ${recipientType === 'all' ? 'active' : ''}`}
                 onClick={() => setRecipientType('all')}
               >
-                All Users
+                All Users & Teams
+              </button>
+              <button
+                type="button"
+                className={`recipient-type-btn ${recipientType === 'all_org' ? 'active' : ''}`}
+                onClick={() => setRecipientType('all_org')}
+              >
+                All Org (Users)
+              </button>
+              <button
+                type="button"
+                className={`recipient-type-btn ${recipientType === 'all_teams' ? 'active' : ''}`}
+                onClick={() => setRecipientType('all_teams')}
+              >
+                All Teams
               </button>
               <button
                 type="button"
                 className={`recipient-type-btn ${recipientType === 'specific' ? 'active' : ''}`}
                 onClick={() => setRecipientType('specific')}
               >
-                Specific Users
+                Specific Selection
               </button>
             </div>
           </div>
@@ -702,19 +746,55 @@ const NotificationView = () => {
               <label className="form-label">Select Users ({selectedUserIds.length} selected)</label>
               <div className="user-selector">
                 {loadingUsers ? (
-                  <div className="loading-small">Loading users...</div>
+                  <div className="loading-small">Loading recipients...</div>
                 ) : (
-                  <div className="user-selection-list">
-                    {users.map(u => (
-                      <div 
-                        key={u.id} 
-                        className={`user-selection-item ${selectedUserIds.includes(u.id) ? 'selected' : ''}`}
-                        onClick={() => toggleUserSelection(u.id)}
-                      >
-                        <span className="user-name">{u.display_name || u.username || u.email}</span>
-                        <span className="user-id-small">{u.id.substring(0, 8)}...</span>
+                  <div className="selection-sections">
+                    {/* Org Section */}
+                    <div className="selection-section">
+                      <h4 className="section-title">Org (Users)</h4>
+                      <div className="user-selection-list">
+                        {users.org.length === 0 ? (
+                          <div className="empty-section">No users available</div>
+                        ) : (
+                          users.org.map(u => (
+                            <div 
+                              key={u.id} 
+                              className={`user-selection-item ${selectedUserIds.includes(u.id) ? 'selected' : ''}`}
+                              onClick={() => toggleUserSelection(u.id)}
+                            >
+                              <span className="user-name">
+                                {u.display_name || u.username || u.email}
+                              </span>
+                              <span className="user-id-small">{u.id.substring(0, 8)}...</span>
+                            </div>
+                          ))
+                        )}
                       </div>
-                    ))}
+                    </div>
+
+                    {/* Teams Section */}
+                    <div className="selection-section">
+                      <h4 className="section-title">Teams</h4>
+                      <div className="user-selection-list">
+                        {users.teams.length === 0 ? (
+                          <div className="empty-section">No teams available</div>
+                        ) : (
+                          users.teams.map(u => (
+                            <div 
+                              key={u.id} 
+                              className={`user-selection-item ${selectedUserIds.includes(u.id) ? 'selected' : ''}`}
+                              onClick={() => toggleUserSelection(u.id)}
+                            >
+                              <span className="user-name">
+                                {u.display_name}
+                                <span className="team-tag">teams</span>
+                              </span>
+                              <span className="user-id-small">{u.id.substring(0, 8)}...</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -779,8 +859,8 @@ const NotificationView = () => {
             <div className="phone-screen">
               <div className="notification-bubble">
                 <div className="app-info">
-                  <div className="app-icon">LF</div>
-                  <span className="app-name">LazarFlow</span>
+                  <div className="app-icon">{getPreviewAppName() === 'LazarFlow Teams' ? 'LT' : 'LF'}</div>
+                  <span className="app-name">{getPreviewAppName()}</span>
                   <span className="notif-time">now</span>
                 </div>
                 <div className="notif-content">
@@ -1001,7 +1081,6 @@ const Dashboard = ({ user, onLogout }) => {
     const query = searchQuery.toLowerCase()
     const filtered = users.filter(u => 
         u.emails?.toLowerCase().includes(query) ||
-        u.email?.toLowerCase().includes(query) ||
         u.display_name?.toLowerCase().includes(query) ||
         u.username?.toLowerCase().includes(query)
       )

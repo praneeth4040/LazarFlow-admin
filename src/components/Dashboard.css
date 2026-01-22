@@ -1161,9 +1161,41 @@
   background: var(--bg-dark);
   border: 1px solid var(--border);
   border-radius: 12px;
-  max-height: 250px;
+  max-height: 400px;
   overflow-y: auto;
-  padding: 10px;
+  padding: 15px;
+}
+
+.selection-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.selection-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.empty-section {
+  padding: 15px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  border: 1px dashed var(--border);
 }
 
 .user-selection-list {
@@ -1196,6 +1228,20 @@
   color: var(--text-bright);
   font-size: 14px;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-tag {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  font-weight: 700;
+  border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
 .user-id-small {
