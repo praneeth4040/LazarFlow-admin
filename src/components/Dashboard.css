@@ -1424,3 +1424,135 @@
     height: 300px;
   }
 }
+
+/* Activity Logs Section */
+.activity-logs-section {
+  margin-top: 32px;
+  background: var(--bg-dark);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.logs-header {
+  padding: 16px 24px;
+  background: var(--surface-light);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logs-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.clear-logs-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clear-logs-btn:hover {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: white;
+}
+
+.logs-container {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 16px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #0d1117; /* GitHub dark theme background for logs */
+}
+
+.empty-logs {
+  text-align: center;
+  padding: 32px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.log-entry {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+  background: rgba(255, 255, 255, 0.02);
+  line-height: 1.5;
+}
+
+.log-timestamp {
+  color: #8b949e;
+  margin-right: 8px;
+}
+
+.log-type {
+  font-weight: 700;
+  margin-right: 8px;
+  min-width: 80px;
+  display: inline-block;
+}
+
+.log-message {
+  color: #c9d1d9;
+}
+
+.log-details {
+  margin: 8px 0 0 0;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  color: #a5d6ff;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Log Types Colors */
+.log-info { border-left-color: #58a6ff; }
+.log-info .log-type { color: #58a6ff; }
+
+.log-request { border-left-color: #d2a8ff; }
+.log-request .log-type { color: #d2a8ff; }
+
+.log-response { border-left-color: #79c0ff; }
+.log-response .log-type { color: #79c0ff; }
+
+.log-success { border-left-color: #3fb950; }
+.log-success .log-type { color: #3fb950; }
+
+.log-error { border-left-color: #f85149; }
+.log-error .log-type { color: #f85149; }
+.log-error .log-message { color: #ff7b72; }
+
+/* Custom Scrollbar for Logs */
+.logs-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.logs-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.logs-container::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 10px;
+}
+
+.logs-container::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}

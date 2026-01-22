@@ -487,6 +487,19 @@ const NotificationView = () => {
   const [sending, setSending] = useState(false)
   const [status, setStatus] = useState({ type: '', message: '' })
   const [isUsingFallback, setIsUsingFallback] = useState(false)
+  const [activityLogs, setActivityLogs] = useState([])
+
+  const addLog = (type, message, details = null) => {
+    const newLog = {
+      id: Date.now(),
+      timestamp: new Date().toLocaleTimeString(),
+      type, // 'info', 'success', 'error', 'request', 'response'
+      message,
+      details
+    }
+    setActivityLogs(prev => [newLog, ...prev].slice(0, 50)) // Keep last 50 logs
+    console.log(`[${newLog.timestamp}] ${type.toUpperCase()}: ${message}`, details || '')
+  }
 
   useEffect(() => {
     fetchNotificationUsers()
@@ -495,51 +508,67 @@ const NotificationView = () => {
   const fetchNotificationUsers = async () => {
     setLoadingUsers(true)
     setIsUsingFallback(false)
+    addLog('info', 'Fetching recipient list...')
     try {
       const response = await fetch('/get-users').catch(err => {
         if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
+          addLog('error', 'Connection failed: Backend server not reachable')
           throw new Error('Backend server not reachable')
         }
         throw err
       })
       
+      addLog('response', `GET /get-users returned status ${response.status}`)
       const responseText = await response.text()
       
       if (!response.ok) {
+        addLog('error', `API error (${response.status})`, responseText)
         // Fallback to direct Supabase query if backend API fails
         console.warn(`Backend /get-users failed with ${response.status}. Attempting direct Supabase fallback.`);
         setIsUsingFallback(true)
+        addLog('info', 'Attempting direct Supabase fallback for user list...')
         const { data, error } = await supabase
           .from('profiles')
           .select('id, username, display_name')
           .order('username', { ascending: true })
         
-        if (error) throw new Error(`API failed (${response.status}) and Supabase fallback failed: ${error.message}`)
+        if (error) {
+          addLog('error', 'Supabase fallback failed', error.message)
+          throw new Error(`API failed (${response.status}) and Supabase fallback failed: ${error.message}`)
+        }
+        addLog('success', `Fetched ${data?.length || 0} users via Supabase fallback`)
         setUsers(data || [])
         return
       }
 
       if (!responseText) {
+        addLog('info', 'Recipient list is empty')
         setUsers([])
         return
       }
       
       const data = JSON.parse(responseText)
+      addLog('success', `Fetched ${Array.isArray(data) ? data.length : 0} users via API`)
       setUsers(Array.isArray(data) ? data : [])
     } catch (err) {
+      addLog('error', `Failed to fetch recipients: ${err.message}`)
       console.error('Error fetching notification users:', err)
       
       // Try one last direct Supabase fallback if fetch failed entirely
       try {
         setIsUsingFallback(true)
+        addLog('info', 'Final Supabase fallback attempt...')
         const { data, error } = await supabase
           .from('profiles')
           .select('id, username, display_name')
         if (!error && data) {
+          addLog('success', `Recovered ${data.length} users via fallback`)
           setUsers(data)
           return
         }
-      } catch (fErr) {}
+      } catch (fErr) {
+        addLog('error', 'All recipient fetch attempts failed')
+      }
 
       setStatus({ type: 'error', message: `Recipient list error: ${err.message}` })
     } finally {
@@ -569,6 +598,8 @@ const NotificationView = () => {
         message: message.trim()
       }
 
+      addLog('request', 'POST /send-notification', payload)
+
       const response = await fetch('/send-notification', {
         method: 'POST',
         headers: {
@@ -577,6 +608,7 @@ const NotificationView = () => {
         body: JSON.stringify(payload),
       }).catch(err => {
         if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
+          addLog('error', 'Connection failed: Backend server not reachable')
           throw new Error('Connection failed: Backend server not reachable. Please check if your API server is running.')
         }
         throw err
@@ -584,6 +616,8 @@ const NotificationView = () => {
 
       // Get the response text first to handle empty or non-JSON responses
       const responseText = await response.text()
+      addLog('response', `POST /send-notification returned status ${response.status}`, responseText)
+      
       let data = {}
       
       try {
@@ -591,6 +625,7 @@ const NotificationView = () => {
           data = JSON.parse(responseText)
         }
       } catch (e) {
+        addLog('error', 'Failed to parse JSON response', responseText)
         console.error('Failed to parse response as JSON:', responseText)
         // If it's an error status, the body might be HTML/text error message
         if (!response.ok) {
@@ -599,17 +634,20 @@ const NotificationView = () => {
       }
 
       if (response.ok) {
+        addLog('success', 'Notification sent successfully', data)
         setStatus({ type: 'success', message: data.message || 'Notification sent successfully!' })
         // Clear form on success
         setTitle('')
         setMessage('')
         setSelectedUserIds([])
       } else {
+        addLog('error', 'Server rejected notification request', data)
         // Use the error message from JSON if available, otherwise construct one
         const errorMessage = data.error || data.message || `Failed to send (Status ${response.status})`
         throw new Error(errorMessage)
       }
     } catch (err) {
+      addLog('error', `Submission error: ${err.message}`)
       console.error('Error sending notification:', err)
       setStatus({ type: 'error', message: err.message })
     } finally {
@@ -755,6 +793,35 @@ const NotificationView = () => {
           <div className="preview-hint">
             <Info size={14} /> This is how the notification will appear on user devices.
           </div>
+        </div>
+      </div>
+
+      <div className="activity-logs-section">
+        <div className="logs-header">
+          <h3>Recent Activity Logs</h3>
+          <button className="clear-logs-btn" onClick={() => setActivityLogs([])}>
+            Clear Logs
+          </button>
+        </div>
+        <div className="logs-container">
+          {activityLogs.length === 0 ? (
+            <div className="empty-logs">No recent activity logs</div>
+          ) : (
+            activityLogs.map(log => (
+              <div key={log.id} className={`log-entry log-${log.type}`}>
+                <span className="log-timestamp">[{log.timestamp}]</span>
+                <span className="log-type">{log.type.toUpperCase()}:</span>
+                <span className="log-message">{log.message}</span>
+                {log.details && (
+                  <pre className="log-details">
+                    {typeof log.details === 'object' 
+                      ? JSON.stringify(log.details, null, 2) 
+                      : log.details}
+                  </pre>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
