@@ -122,3 +122,32 @@ create table public.chat_messages (
 ) TABLESPACE pg_default;
 
 create index IF not exists idx_chat_messages_sender_number on public.chat_messages using btree (sender_number) TABLESPACE pg_default;
+
+# Teams_Profiles schema
+create table public.team_profiles (
+  id uuid not null default gen_random_uuid (),
+  name text not null,
+  phone text not null,
+  is_owner boolean not null default true,
+  created_at timestamp with time zone null default now(),
+  updated_at timestamp with time zone null default now(),
+  fcm_token text null,
+  constraint team_profiles_pkey primary key (id),
+  constraint team_profiles_phone_key unique (phone)
+) TABLESPACE pg_default;
+
+# Teams schema
+create table public.teams (
+  id uuid not null default gen_random_uuid (),
+  name text not null,
+  game text not null,
+  lobbies_played uuid[] not null default '{}'::uuid[],
+  lobbies_count integer not null default 0,
+  members jsonb not null default '[]'::jsonb,
+  created_at timestamp with time zone null default now(),
+  updated_at timestamp with time zone null default now(),
+  owner_user_id uuid null,
+  constraint teams_pkey primary key (id),
+  constraint teams_unique_name_game unique (name, game),
+  constraint teams_owner_user_id_fkey foreign KEY (owner_user_id) references team_profiles (id) on delete set null
+) TABLESPACE pg_default;
