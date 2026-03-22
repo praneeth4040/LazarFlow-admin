@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { 
   Users, 
@@ -21,9 +21,68 @@ import {
   Target,
   Hash,
   Bell,
-  Send
+  Send,
+  Palette,
+  Image as ImageIcon,
+  Save,
+  Play,
+  Square,
+  Circle,
+  MousePointer2,
+  FileJson,
+  LayoutGrid,
+  PlusSquare,
+  MinusSquare,
+  Braces,
+  List
 } from 'lucide-react'
 import './Dashboard.css'
+
+const JsonTreeNode = ({ label, value, depth = 0 }) => {
+  const [isExpanded, setIsExpanded] = useState(depth < 1)
+  const isObject = value !== null && typeof value === 'object'
+  const isArray = Array.isArray(value)
+
+  const toggleExpand = (e) => {
+    e.stopPropagation()
+    setIsExpanded(!isExpanded)
+  }
+
+  if (!isObject) {
+    return (
+      <div className="json-tree-node leaf">
+        <span className="json-key">{label}:</span>
+        <span className={`json-value ${typeof value}`}>
+          {typeof value === 'string' ? `"${value}"` : String(value)}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="json-tree-node branch">
+      <div className="json-node-header" onClick={toggleExpand}>
+        <span className="expand-icon">
+          {isExpanded ? <MinusSquare size={14} /> : <PlusSquare size={14} />}
+        </span>
+        <span className="node-icon">
+          {isArray ? <List size={14} /> : <Braces size={14} />}
+        </span>
+        <span className="json-key">{label}</span>
+        <span className="node-summary">
+          {isArray ? `[${value.length}]` : '{...}'}
+        </span>
+      </div>
+      {isExpanded && (
+        <div className="json-node-children">
+          {Object.entries(value).map(([key, val]) => (
+            <JsonTreeNode key={key} label={key} value={val} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const StatsView = ({ stats, loading }) => (
   <div className="stats-overview">
@@ -611,9 +670,9 @@ const NotificationView = () => {
         message: message.trim()
       }
 
-      addLog('request', 'POST /send-notification', payload)
+      addLog('request', 'POST /api/notifications/send-test', payload)
 
-      const response = await fetch('/send-notification', {
+      const response = await fetch('/api/notifications/send-test', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -629,7 +688,7 @@ const NotificationView = () => {
 
       // Get the response text first to handle empty or non-JSON responses
       const responseText = await response.text()
-      addLog('response', `POST /send-notification returned status ${response.status}`, responseText)
+      addLog('response', `POST /api/notifications/send-test returned status ${response.status}`, responseText)
       
       let data = {}
       
@@ -908,6 +967,666 @@ const NotificationView = () => {
   )
 }
 
+const ThemeBuilderView = ({ addLog }) => {
+  const [themeName, setThemeName] = useState('Default Theme')
+  const [imageUrl, setImageUrl] = useState('https://xsxwzwcfaflzynsyryzq.supabase.co/storage/v1/object/public/themes/optimized/design1_base.png?')
+  const [mappingConfig, setMappingConfig] = useState(JSON.stringify({
+    "cells": [
+      {
+        "w": { "x": 2890, "y": 1826, "alignment": "center" },
+        "kp": { "x": 3690, "y": 1826, "alignment": "center" },
+        "pp": { "x": 3290, "y": 1826, "alignment": "center" },
+        "rank": { "x": 559, "y": 1826, "alignment": "center" },
+        "team": { "x": 820, "y": 1826, "alignment": "left" },
+        "total": { "x": 4090, "y": 1826, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 2154, "alignment": "center" },
+        "kp": { "x": 3674, "y": 2154, "alignment": "center" },
+        "pp": { "x": 3277, "y": 2154, "alignment": "center" },
+        "rank": { "x": 559, "y": 2154, "alignment": "center" },
+        "team": { "x": 820, "y": 2154, "alignment": "left" },
+        "total": { "x": 4071, "y": 2154, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 2482, "alignment": "center" },
+        "kp": { "x": 3674, "y": 2482, "alignment": "center" },
+        "pp": { "x": 3277, "y": 2482, "alignment": "center" },
+        "rank": { "x": 559, "y": 2482, "alignment": "center" },
+        "team": { "x": 820, "y": 2482, "alignment": "left" },
+        "total": { "x": 4071, "y": 2482, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 2810, "alignment": "center" },
+        "kp": { "x": 3674, "y": 2810, "alignment": "center" },
+        "pp": { "x": 3277, "y": 2810, "alignment": "center" },
+        "rank": { "x": 559, "y": 2810, "alignment": "center" },
+        "team": { "x": 820, "y": 2810, "alignment": "left" },
+        "total": { "x": 4071, "y": 2810, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 3138, "alignment": "center" },
+        "kp": { "x": 3674, "y": 3138, "alignment": "center" },
+        "pp": { "x": 3277, "y": 3138, "alignment": "center" },
+        "rank": { "x": 559, "y": 3138, "alignment": "center" },
+        "team": { "x": 820, "y": 3138, "alignment": "left" },
+        "total": { "x": 4071, "y": 3138, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 3466, "alignment": "center" },
+        "kp": { "x": 3674, "y": 3466, "alignment": "center" },
+        "pp": { "x": 3277, "y": 3466, "alignment": "center" },
+        "rank": { "x": 559, "y": 3466, "alignment": "center" },
+        "team": { "x": 820, "y": 3466, "alignment": "left" },
+        "total": { "x": 4071, "y": 3466, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 3794, "alignment": "center" },
+        "kp": { "x": 3674, "y": 3794, "alignment": "center" },
+        "pp": { "x": 3277, "y": 3794, "alignment": "center" },
+        "rank": { "x": 559, "y": 3794, "alignment": "center" },
+        "team": { "x": 820, "y": 3794, "alignment": "left" },
+        "total": { "x": 4071, "y": 3794, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 4122, "alignment": "center" },
+        "kp": { "x": 3674, "y": 4122, "alignment": "center" },
+        "pp": { "x": 3277, "y": 4122, "alignment": "center" },
+        "rank": { "x": 559, "y": 4122, "alignment": "center" },
+        "team": { "x": 820, "y": 4122, "alignment": "left" },
+        "total": { "x": 4071, "y": 4122, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 4450, "alignment": "center" },
+        "kp": { "x": 3674, "y": 4450, "alignment": "center" },
+        "pp": { "x": 3277, "y": 4450, "alignment": "center" },
+        "rank": { "x": 559, "y": 4450, "alignment": "center" },
+        "team": { "x": 820, "y": 4450, "alignment": "left" },
+        "total": { "x": 4071, "y": 4450, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 4778, "alignment": "center" },
+        "kp": { "x": 3674, "y": 4778, "alignment": "center" },
+        "pp": { "x": 3277, "y": 4778, "alignment": "center" },
+        "rank": { "x": 559, "y": 4778, "alignment": "center" },
+        "team": { "x": 820, "y": 4778, "alignment": "left" },
+        "total": { "x": 4071, "y": 4778, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 5106, "alignment": "center" },
+        "kp": { "x": 3674, "y": 5106, "alignment": "center" },
+        "pp": { "x": 3277, "y": 5106, "alignment": "center" },
+        "rank": { "x": 559, "y": 5106, "alignment": "center" },
+        "team": { "x": 820, "y": 5106, "alignment": "left" },
+        "total": { "x": 4071, "y": 5106, "alignment": "center" }
+      },
+      {
+        "w": { "x": 2880, "y": 5434, "alignment": "center" },
+        "kp": { "x": 3674, "y": 5434, "alignment": "center" },
+        "pp": { "x": 3277, "y": 5434, "alignment": "center" },
+        "rank": { "x": 559, "y": 5434, "alignment": "center" },
+        "team": { "x": 820, "y": 5434, "alignment": "left" },
+        "total": { "x": 4071, "y": 5434, "alignment": "center" }
+      }
+    ],
+    "scoreboard": {
+      "color_rgb": [0, 0, 0],
+      "font_path": "Anton-Regular.ttf",
+      "font_size": 130
+    }
+  }, null, 2))
+  const [previewImage, setPreviewImage] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState({ type: '', message: '' })
+  const [imageError, setImageError] = useState(false)
+  const [showJsonViewer, setShowJsonViewer] = useState(false)
+  const [previewMode, setPreviewMode] = useState('image') // 'image' for picker, 'result' for rendered preview
+  
+  // Update Config States
+  const [selectedCellIdx, setSelectedCellIdx] = useState(0)
+  const [selectedField, setSelectedField] = useState('team')
+  const CONFIG_FIELDS = ['rank', 'team', 'w', 'pp', 'kp', 'total']
+  
+  // Coordinate Picker States
+  const [clickedCoord, setClickedCoord] = useState(null)
+  const [selectionMode, setSelectionMode] = useState('point') // 'point', 'rect', 'circle'
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [startPos, setStartPos] = useState(null)
+  const [currentPos, setCurrentPos] = useState(null)
+  const imageRef = useRef(null)
+
+  const handleUpdateMappingConfig = () => {
+    if (!clickedCoord) return
+    
+    try {
+      const config = JSON.parse(mappingConfig)
+      if (!config.cells || !config.cells[selectedCellIdx]) {
+        throw new Error(`Cell ${selectedCellIdx + 1} not found in config`)
+      }
+
+      const newX = clickedCoord.type && clickedCoord.type !== 'point' ? clickedCoord.centerX : clickedCoord.x
+      const newY = clickedCoord.type && clickedCoord.type !== 'point' ? clickedCoord.centerY : clickedCoord.y
+      
+      const updatedConfig = { ...config }
+      const currentCell = { ...updatedConfig.cells[selectedCellIdx] }
+      
+      currentCell[selectedField] = {
+        ...currentCell[selectedField],
+        x: newX,
+        y: newY
+      }
+      
+      updatedConfig.cells[selectedCellIdx] = currentCell
+      
+      setMappingConfig(JSON.stringify(updatedConfig, null, 2))
+      addLog('success', `Updated Row ${selectedCellIdx + 1} -> ${selectedField} to X:${newX}, Y:${newY}`)
+    } catch (e) {
+      addLog('error', `Update failed: ${e.message}`)
+      setStatus({ type: 'error', message: `Update failed: ${e.message}` })
+    }
+  }
+
+  const handleFormatJson = () => {
+    try {
+      const obj = JSON.parse(mappingConfig)
+      setMappingConfig(JSON.stringify(obj, null, 2))
+      addLog('success', 'JSON formatted successfully')
+    } catch (e) {
+      addLog('error', 'Cannot format: Invalid JSON')
+      setStatus({ type: 'error', message: 'Cannot format: Invalid JSON in editor' })
+    }
+  }
+
+  const getRelativePos = (e) => {
+    if (!imageRef.current) return null
+    const rect = imageRef.current.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    
+    // Scale to original image size
+    const scaleX = imageRef.current.naturalWidth / rect.width
+    const scaleY = imageRef.current.naturalHeight / rect.height
+    
+    return {
+      x: Math.round(x * scaleX),
+      y: Math.round(y * scaleY),
+      screenX: x,
+      screenY: y
+    }
+  }
+
+  const handleMouseDown = (e) => {
+    if (selectionMode === 'point') {
+      const pos = getRelativePos(e)
+      if (pos) {
+        setClickedCoord({ x: pos.x, y: pos.y })
+        addLog('info', `Picked coordinate: X:${pos.x}, Y:${pos.y}`)
+      }
+      return
+    }
+
+    const pos = getRelativePos(e)
+    if (pos) {
+      setIsDrawing(true)
+      setStartPos(pos)
+      setCurrentPos(pos)
+    }
+  }
+
+  const handleMouseMove = (e) => {
+    if (!isDrawing) return
+    const pos = getRelativePos(e)
+    if (pos) {
+      setCurrentPos(pos)
+    }
+  }
+
+  const handleMouseUp = () => {
+    if (!isDrawing) return
+    setIsDrawing(false)
+    
+    if (startPos && currentPos) {
+      const width = Math.abs(currentPos.x - startPos.x)
+      const height = Math.abs(currentPos.y - startPos.y)
+      const centerX = Math.round((startPos.x + currentPos.x) / 2)
+      const centerY = Math.round((startPos.y + currentPos.y) / 2)
+      
+      const selectionInfo = {
+        type: selectionMode,
+        x: Math.min(startPos.x, currentPos.x),
+        y: Math.min(startPos.y, currentPos.y),
+        width,
+        height,
+        centerX,
+        centerY
+      }
+      
+      setClickedCoord(selectionInfo)
+      addLog('info', `Area selected (${selectionMode}): X:${selectionInfo.x}, Y:${selectionInfo.y}, W:${width}, H:${height}, Center:${centerX},${centerY}`)
+    }
+  }
+
+  const handleGeneratePreview = async () => {
+    if (!imageUrl || !mappingConfig) {
+      setStatus({ type: 'error', message: 'Image URL and Mapping Config are required' })
+      return
+    }
+
+    setLoading(true)
+    setStatus({ type: '', message: '' })
+    setPreviewImage(null)
+
+    try {
+      let config;
+      try {
+        config = JSON.parse(mappingConfig)
+      } catch (e) {
+        throw new Error('Invalid JSON in Mapping Config')
+      }
+
+      const payload = {
+        imageUrl: imageUrl,
+        mappingConfig: config
+      }
+
+      console.log('--- GENERATING PREVIEW ---')
+      console.log('Payload:', payload)
+      addLog('request', 'POST /api/render/preview-render', payload)
+
+      const response = await fetch('http://localhost:5000/api/render/preview-render', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'image/png'
+        },
+        body: JSON.stringify(payload),
+      })
+
+      console.log('Response Status:', response.status)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Preview error details:', errorText)
+        throw new Error(`Server Error (${response.status}): ${errorText}`)
+      }
+
+      const blob = await response.blob()
+      console.log('Blob size:', blob.size)
+      const objectUrl = URL.createObjectURL(blob)
+      setPreviewImage(objectUrl)
+      setPreviewMode('result') // Automatically switch to result view
+      addLog('success', 'Preview generated successfully')
+    } catch (err) {
+      console.error('Full catch error:', err)
+      setStatus({ type: 'error', message: err.message })
+      addLog('error', 'Preview failed', err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSave = async () => {
+    if (!imageUrl || !mappingConfig) {
+      setStatus({ type: 'error', message: 'Image URL and Mapping Config are required to update' })
+      return
+    }
+
+    setSaving(true)
+    setStatus({ type: '', message: '' })
+
+    try {
+      let config;
+      try {
+        config = JSON.parse(mappingConfig)
+      } catch (e) {
+        throw new Error('Invalid JSON in Mapping Config')
+      }
+
+      // Update existing theme where URL matches
+      const { data, error } = await supabase
+        .from('themes')
+        .update({
+          mapping_config: config,
+          updated_at: new Date().toISOString()
+        })
+        .eq('url', imageUrl)
+        .select()
+
+      if (error) throw error
+
+      if (!data || data.length === 0) {
+        throw new Error('No theme found with this Image URL. Make sure the URL matches exactly.')
+      }
+
+      setStatus({ type: 'success', message: 'Theme config updated successfully!' })
+      addLog('success', 'Theme updated in database', data)
+      
+    } catch (err) {
+      console.error('Update error:', err)
+      setStatus({ type: 'error', message: err.message })
+      addLog('error', 'Update failed', err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="theme-builder">
+      <div className="section-header">
+        <h2><Palette size={20} /> Theme Builder</h2>
+        <p className="subtitle">Design and verify custom leaderboard themes</p>
+      </div>
+
+      <div className="builder-container">
+        <div className="builder-form">
+          <div className="form-section">
+            <label className="form-label">Theme Name</label>
+            <input
+              type="text"
+              placeholder="e.g. Modern Dark Tournament"
+              value={themeName}
+              onChange={(e) => setThemeName(e.target.value)}
+              className="builder-input"
+            />
+          </div>
+
+          <div className="form-section">
+            <label className="form-label">Background Image URL</label>
+            <div className="input-with-icon">
+              <ImageIcon size={16} className="input-icon" />
+              <input
+                type="text"
+                placeholder="https://example.com/theme.png"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                className="builder-input"
+              />
+            </div>
+          </div>
+
+          <div className="form-section">
+            <div className="label-with-actions">
+              <label className="form-label">Mapping Config (JSON)</label>
+              <div className="json-actions">
+                <button 
+                  className={`json-view-toggle ${!showJsonViewer ? 'active' : ''}`}
+                  onClick={() => setShowJsonViewer(false)}
+                  title="Editor Mode"
+                >
+                  Edit
+                </button>
+                <button 
+                  className={`json-view-toggle ${showJsonViewer ? 'active' : ''}`}
+                  onClick={() => setShowJsonViewer(true)}
+                  title="Viewer Mode"
+                >
+                  <FileJson size={14} /> View
+                </button>
+                <button 
+                  className="json-action-btn"
+                  onClick={handleFormatJson}
+                  title="Auto Format JSON"
+                >
+                  <LayoutGrid size={14} /> Format
+                </button>
+              </div>
+            </div>
+
+            {showJsonViewer ? (
+              <div className="json-viewer-container">
+                {(() => {
+                  try {
+                    const parsed = JSON.parse(mappingConfig);
+                    return (
+                      <div className="json-tree-root">
+                        <JsonTreeNode label="JSON" value={parsed} />
+                      </div>
+                    );
+                  } catch (e) {
+                    return (
+                      <div className="json-error">
+                        <XCircle size={16} />
+                        <span>Invalid JSON - please switch back to edit mode to fix it.</span>
+                      </div>
+                    );
+                  }
+                })()}
+              </div>
+            ) : (
+              <textarea
+                placeholder="Enter JSON mapping config..."
+                value={mappingConfig}
+                onChange={(e) => setMappingConfig(e.target.value)}
+                className="builder-textarea large-editor"
+                rows="35"
+              ></textarea>
+            )}
+          </div>
+
+          {status.message && (
+            <div className={`notification-status ${status.type}`}>
+              {status.type === 'success' ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+              <div className="status-content">{status.message}</div>
+            </div>
+          )}
+
+          <div className="builder-actions">
+            <button 
+              className="preview-btn" 
+              onClick={handleGeneratePreview}
+              disabled={loading}
+            >
+              {loading ? <RefreshCcw size={18} className="spin" /> : <Play size={18} />}
+              Generate Live Preview
+            </button>
+            <button 
+              className="save-btn" 
+              onClick={handleSave}
+              disabled={saving}
+            >
+              {saving ? <RefreshCcw size={18} className="spin" /> : <Save size={18} />}
+              Verify & Save
+            </button>
+          </div>
+        </div>
+
+        <div className="builder-preview">
+          <div className="preview-header-with-toggle">
+            <h3>Live Preview</h3>
+            <div className="preview-mode-toggle">
+              <button 
+                className={`mode-toggle-btn ${previewMode === 'image' ? 'active' : ''}`}
+                onClick={() => setPreviewMode('image')}
+              >
+                <ImageIcon size={14} /> Background
+              </button>
+              <button 
+                className={`mode-toggle-btn ${previewMode === 'result' ? 'active' : ''}`}
+                onClick={() => setPreviewMode('result')}
+                disabled={!previewImage}
+              >
+                <Play size={14} /> Result
+              </button>
+            </div>
+          </div>
+          
+          {previewMode === 'image' && (
+            <>
+              <div className="selection-toolbar">
+                <button 
+                  className={`toolbar-btn ${selectionMode === 'point' ? 'active' : ''}`}
+                  onClick={() => setSelectionMode('point')}
+                  title="Pick Point"
+                >
+                  <MousePointer2 size={16} /> Point
+                </button>
+                <button 
+                  className={`toolbar-btn ${selectionMode === 'rect' ? 'active' : ''}`}
+                  onClick={() => setSelectionMode('rect')}
+                  title="Draw Rectangle"
+                >
+                  <Square size={16} /> Rectangle
+                </button>
+                <button 
+                  className={`toolbar-btn ${selectionMode === 'circle' ? 'active' : ''}`}
+                  onClick={() => setSelectionMode('circle')}
+                  title="Draw Circle"
+                >
+                  <Circle size={16} /> Circle
+                </button>
+              </div>
+
+              {clickedCoord && (
+                <div className="coordinate-display">
+                  <div className="coord-info">
+                    {clickedCoord.type && clickedCoord.type !== 'point' ? (
+                      <div className="shape-info">
+                        <span><strong>{clickedCoord.type.toUpperCase()}</strong> Area:</span>
+                        <span>X: {clickedCoord.x}, Y: {clickedCoord.y}</span>
+                        <span>W: {clickedCoord.width}, H: {clickedCoord.height}</span>
+                        <span>Center: <strong>{clickedCoord.centerX}, {clickedCoord.centerY}</strong></span>
+                      </div>
+                    ) : (
+                      <span>Last Click: <strong>X: {clickedCoord.x}, Y: {clickedCoord.y}</strong></span>
+                    )}
+                  </div>
+
+                  <div className="coord-implement-section">
+                    <div className="selector-group">
+                      <select 
+                        value={selectedCellIdx} 
+                        onChange={(e) => setSelectedCellIdx(parseInt(e.target.value))}
+                        className="coord-selector"
+                      >
+                        {(() => {
+                          try {
+                            const config = JSON.parse(mappingConfig);
+                            const cells = config.cells || [];
+                            return cells.map((_, idx) => (
+                              <option key={idx} value={idx}>Row {idx + 1}</option>
+                            ));
+                          } catch (e) {
+                            return <option value={0}>Row 1</option>;
+                          }
+                        })()}
+                      </select>
+                      <select 
+                        value={selectedField} 
+                        onChange={(e) => setSelectedField(e.target.value)}
+                        className="coord-selector"
+                      >
+                        {CONFIG_FIELDS.map(field => (
+                          <option key={field} value={field}>{field.toUpperCase()}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button className="implement-btn" onClick={handleUpdateMappingConfig}>
+                      <Save size={14} /> Update Config
+                    </button>
+                  </div>
+
+                  <div className="coord-actions">
+                    <button className="copy-coord-btn" onClick={() => {
+                      const textToCopy = clickedCoord.type && clickedCoord.type !== 'point'
+                        ? `"x": ${clickedCoord.centerX}, "y": ${clickedCoord.centerY}, "width": ${clickedCoord.width}, "height": ${clickedCoord.height}`
+                        : `"x": ${clickedCoord.x}, "y": ${clickedCoord.y}`;
+                      navigator.clipboard.writeText(textToCopy)
+                      addLog('info', 'Coordinates copied to clipboard')
+                    }}>
+                      Copy JSON
+                    </button>
+                    <button className="clear-coord-btn" onClick={() => {
+                      setClickedCoord(null)
+                      setStartPos(null)
+                      setCurrentPos(null)
+                    }}>
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          <div 
+            className="image-preview-area"
+            onMouseMove={previewMode === 'image' ? handleMouseMove : undefined}
+            onMouseUp={previewMode === 'image' ? handleMouseUp : undefined}
+            onMouseLeave={() => setIsDrawing(false)}
+          >
+            {previewMode === 'result' && previewImage ? (
+              <img src={previewImage} alt="Theme Preview" className="preview-rendered-img" />
+            ) : (imageUrl && !imageError) ? (
+              <div className="preview-relative-container" style={{ position: 'relative', display: 'inline-block' }}>
+                <img 
+                  ref={imageRef}
+                  src={imageUrl} 
+                  alt="Background Preview" 
+                  className={`preview-rendered-img raw-bg ${previewMode === 'image' ? (selectionMode !== 'point' ? 'drawing-active' : 'picker-active') : ''}`} 
+                  onMouseDown={previewMode === 'image' ? handleMouseDown : undefined}
+                  draggable="false"
+                  onError={() => {
+                    setImageError(true)
+                    addLog('error', 'Failed to load background image from URL', imageUrl)
+                  }}
+                />
+                
+                {/* Drawing Overlay */}
+                {previewMode === 'image' && isDrawing && startPos && currentPos && (
+                  <div 
+                    className={`selection-overlay ${selectionMode}`}
+                    style={{
+                      position: 'absolute',
+                      left: Math.min(startPos.screenX, currentPos.screenX),
+                      top: Math.min(startPos.screenY, currentPos.screenY),
+                      width: Math.abs(currentPos.screenX - startPos.screenX),
+                      height: Math.abs(currentPos.screenY - startPos.screenY),
+                      pointerEvents: 'none',
+                      border: '2px solid var(--primary)',
+                      background: 'rgba(99, 102, 241, 0.2)',
+                      borderRadius: selectionMode === 'circle' ? '50%' : '4px'
+                    }}
+                  />
+                )}
+                
+                {/* Persistent Selection Highlight */}
+                {previewMode === 'image' && !isDrawing && clickedCoord && clickedCoord.type && clickedCoord.type !== 'point' && imageRef.current && (
+                  <div 
+                    className={`selection-highlight ${clickedCoord.type}`}
+                    style={{
+                      position: 'absolute',
+                      left: (clickedCoord.x / imageRef.current.naturalWidth) * imageRef.current.clientWidth,
+                      top: (clickedCoord.y / imageRef.current.naturalHeight) * imageRef.current.clientHeight,
+                      width: (clickedCoord.width / imageRef.current.naturalWidth) * imageRef.current.clientWidth,
+                      height: (clickedCoord.height / imageRef.current.naturalHeight) * imageRef.current.clientHeight,
+                      pointerEvents: 'none',
+                      border: '2px dashed var(--primary)',
+                      background: 'rgba(99, 102, 241, 0.1)',
+                      borderRadius: clickedCoord.type === 'circle' ? '50%' : '4px'
+                    }}
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="preview-placeholder">
+                <ImageIcon size={48} />
+                <p>{imageError ? 'Invalid Image URL or Access Denied' : 'Enter an image URL and click "Generate Live Preview"'}</p>
+              </div>
+            )}
+          </div>
+          <div className="preview-hint">
+            <Info size={14} /> 
+            {previewMode === 'result' ? 'Showing rendered preview with dummy data.' : 
+             selectionMode === 'point' ? 'Interactive Mode: Click anywhere on the background image to get X and Y coordinates.' :
+             `Interactive Mode: Click and drag on the image to draw a ${selectionMode}.`}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const Dashboard = ({ user, onLogout }) => {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -924,7 +1643,19 @@ const Dashboard = ({ user, onLogout }) => {
   const [tournamentTeams, setTournamentTeams] = useState([])
   const [loadingTeams, setLoadingTeams] = useState(false)
   const [loadingUsers, setLoadingUsers] = useState(false)
-  const [activeTab, setActiveTab] = useState('overview') // 'overview', 'users', 'tournaments', 'notifications'
+  const [activeTab, setActiveTab] = useState('overview') // 'overview', 'users', 'tournaments', 'notifications', 'themes'
+  const [activityLogs, setActivityLogs] = useState([])
+
+  const addLog = (type, message, details = null) => {
+    const newLog = {
+      id: Date.now(),
+      timestamp: new Date().toLocaleTimeString(),
+      type,
+      message,
+      details
+    }
+    setActivityLogs(prev => [newLog, ...prev].slice(0, 50))
+  }
   const [allTournaments, setAllTournaments] = useState([])
   const [loadingAllTournaments, setLoadingAllTournaments] = useState(false)
   const [stats, setStats] = useState({
@@ -1057,20 +1788,32 @@ const Dashboard = ({ user, onLogout }) => {
     setLoadingUsers(true)
     try {
       const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false })
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false })
 
-      if (error) throw error
-      setUsers(data || [])
-      setFilteredUsers(data || [])
-    } catch (err) {
-      console.error('Error fetching users:', err)
-      setError('Failed to load users: ' + err.message)
-    } finally {
-      setLoadingUsers(false)
-    }
+    if (error) throw error
+    setUsers(data || [])
+    setFilteredUsers(data || [])
+  } catch (err) {
+    console.error('Error fetching users:', err)
+    setError('Failed to load users: ' + err.message)
+  } finally {
+    setLoadingUsers(false)
   }
+}
+
+const addActivityLog = (type, message, details = null) => {
+  const newLog = {
+    id: Date.now(),
+    timestamp: new Date().toLocaleTimeString(),
+    type,
+    message,
+    details
+  }
+  // This is a helper to pass to components that need to log
+  // We'll define the actual state in the Dashboard component
+}
 
   const filterUsers = () => {
     if (!searchQuery.trim()) {
@@ -1283,6 +2026,12 @@ const Dashboard = ({ user, onLogout }) => {
             >
               <Bell size={16} /> Notifications
             </button>
+            <button 
+              className={`tab-button ${activeTab === 'themes' ? 'active' : ''}`}
+              onClick={() => setActiveTab('themes')}
+            >
+              <Palette size={16} /> Themes
+            </button>
           </div>
         )}
 
@@ -1311,6 +2060,8 @@ const Dashboard = ({ user, onLogout }) => {
           />
         ) : activeTab === 'notifications' ? (
           <NotificationView />
+        ) : activeTab === 'themes' ? (
+          <ThemeBuilderView addLog={addLog} />
         ) : (
           <UserListView 
             users={users}
