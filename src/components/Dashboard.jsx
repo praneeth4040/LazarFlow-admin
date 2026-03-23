@@ -967,114 +967,116 @@ const NotificationView = () => {
   )
 }
 
+const DEFAULT_MAPPING_CONFIG = {
+  "cells": [
+    {
+      "w": { "x": 2890, "y": 1826, "alignment": "center" },
+      "kp": { "x": 3690, "y": 1826, "alignment": "center" },
+      "pp": { "x": 3290, "y": 1826, "alignment": "center" },
+      "rank": { "x": 559, "y": 1826, "alignment": "center" },
+      "team": { "x": 820, "y": 1826, "alignment": "left" },
+      "total": { "x": 4090, "y": 1826, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 2154, "alignment": "center" },
+      "kp": { "x": 3674, "y": 2154, "alignment": "center" },
+      "pp": { "x": 3277, "y": 2154, "alignment": "center" },
+      "rank": { "x": 559, "y": 2154, "alignment": "center" },
+      "team": { "x": 820, "y": 2154, "alignment": "left" },
+      "total": { "x": 4071, "y": 2154, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 2482, "alignment": "center" },
+      "kp": { "x": 3674, "y": 2482, "alignment": "center" },
+      "pp": { "x": 3277, "y": 2482, "alignment": "center" },
+      "rank": { "x": 559, "y": 2482, "alignment": "center" },
+      "team": { "x": 820, "y": 2482, "alignment": "left" },
+      "total": { "x": 4071, "y": 2482, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 2810, "alignment": "center" },
+      "kp": { "x": 3674, "y": 2810, "alignment": "center" },
+      "pp": { "x": 3277, "y": 2810, "alignment": "center" },
+      "rank": { "x": 559, "y": 2810, "alignment": "center" },
+      "team": { "x": 820, "y": 2810, "alignment": "left" },
+      "total": { "x": 4071, "y": 2810, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 3138, "alignment": "center" },
+      "kp": { "x": 3674, "y": 3138, "alignment": "center" },
+      "pp": { "x": 3277, "y": 3138, "alignment": "center" },
+      "rank": { "x": 559, "y": 3138, "alignment": "center" },
+      "team": { "x": 820, "y": 3138, "alignment": "left" },
+      "total": { "x": 4071, "y": 3138, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 3466, "alignment": "center" },
+      "kp": { "x": 3674, "y": 3466, "alignment": "center" },
+      "pp": { "x": 3277, "y": 3466, "alignment": "center" },
+      "rank": { "x": 559, "y": 3466, "alignment": "center" },
+      "team": { "x": 820, "y": 3466, "alignment": "left" },
+      "total": { "x": 4071, "y": 3466, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 3794, "alignment": "center" },
+      "kp": { "x": 3674, "y": 3794, "alignment": "center" },
+      "pp": { "x": 3277, "y": 3794, "alignment": "center" },
+      "rank": { "x": 559, "y": 3794, "alignment": "center" },
+      "team": { "x": 820, "y": 3794, "alignment": "left" },
+      "total": { "x": 4071, "y": 3794, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 4122, "alignment": "center" },
+      "kp": { "x": 3674, "y": 4122, "alignment": "center" },
+      "pp": { "x": 3277, "y": 4122, "alignment": "center" },
+      "rank": { "x": 559, "y": 4122, "alignment": "center" },
+      "team": { "x": 820, "y": 4122, "alignment": "left" },
+      "total": { "x": 4071, "y": 4122, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 4450, "alignment": "center" },
+      "kp": { "x": 3674, "y": 4450, "alignment": "center" },
+      "pp": { "x": 3277, "y": 4450, "alignment": "center" },
+      "rank": { "x": 559, "y": 4450, "alignment": "center" },
+      "team": { "x": 820, "y": 4450, "alignment": "left" },
+      "total": { "x": 4071, "y": 4450, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 4778, "alignment": "center" },
+      "kp": { "x": 3674, "y": 4778, "alignment": "center" },
+      "pp": { "x": 3277, "y": 4778, "alignment": "center" },
+      "rank": { "x": 559, "y": 4778, "alignment": "center" },
+      "team": { "x": 820, "y": 4778, "alignment": "left" },
+      "total": { "x": 4071, "y": 4778, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 5106, "alignment": "center" },
+      "kp": { "x": 3674, "y": 5106, "alignment": "center" },
+      "pp": { "x": 3277, "y": 5106, "alignment": "center" },
+      "rank": { "x": 559, "y": 5106, "alignment": "center" },
+      "team": { "x": 820, "y": 5106, "alignment": "left" },
+      "total": { "x": 4071, "y": 5106, "alignment": "center" }
+    },
+    {
+      "w": { "x": 2880, "y": 5434, "alignment": "center" },
+      "kp": { "x": 3674, "y": 5434, "alignment": "center" },
+      "pp": { "x": 3277, "y": 5434, "alignment": "center" },
+      "rank": { "x": 559, "y": 5434, "alignment": "center" },
+      "team": { "x": 820, "y": 5434, "alignment": "left" },
+      "total": { "x": 4071, "y": 5434, "alignment": "center" }
+    }
+  ],
+  "scoreboard": {
+    "color_rgb": [0, 0, 0],
+    "font_path": "Anton-Regular.ttf",
+    "font_size": 130
+  }
+}
+
 const ThemeBuilderView = ({ addLog }) => {
   const [themeName, setThemeName] = useState('Default Theme')
   const [imageUrl, setImageUrl] = useState('https://xsxwzwcfaflzynsyryzq.supabase.co/storage/v1/object/public/themes/optimized/design1_base.png?')
-  const [mappingConfig, setMappingConfig] = useState(JSON.stringify({
-    "cells": [
-      {
-        "w": { "x": 2890, "y": 1826, "alignment": "center" },
-        "kp": { "x": 3690, "y": 1826, "alignment": "center" },
-        "pp": { "x": 3290, "y": 1826, "alignment": "center" },
-        "rank": { "x": 559, "y": 1826, "alignment": "center" },
-        "team": { "x": 820, "y": 1826, "alignment": "left" },
-        "total": { "x": 4090, "y": 1826, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 2154, "alignment": "center" },
-        "kp": { "x": 3674, "y": 2154, "alignment": "center" },
-        "pp": { "x": 3277, "y": 2154, "alignment": "center" },
-        "rank": { "x": 559, "y": 2154, "alignment": "center" },
-        "team": { "x": 820, "y": 2154, "alignment": "left" },
-        "total": { "x": 4071, "y": 2154, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 2482, "alignment": "center" },
-        "kp": { "x": 3674, "y": 2482, "alignment": "center" },
-        "pp": { "x": 3277, "y": 2482, "alignment": "center" },
-        "rank": { "x": 559, "y": 2482, "alignment": "center" },
-        "team": { "x": 820, "y": 2482, "alignment": "left" },
-        "total": { "x": 4071, "y": 2482, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 2810, "alignment": "center" },
-        "kp": { "x": 3674, "y": 2810, "alignment": "center" },
-        "pp": { "x": 3277, "y": 2810, "alignment": "center" },
-        "rank": { "x": 559, "y": 2810, "alignment": "center" },
-        "team": { "x": 820, "y": 2810, "alignment": "left" },
-        "total": { "x": 4071, "y": 2810, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 3138, "alignment": "center" },
-        "kp": { "x": 3674, "y": 3138, "alignment": "center" },
-        "pp": { "x": 3277, "y": 3138, "alignment": "center" },
-        "rank": { "x": 559, "y": 3138, "alignment": "center" },
-        "team": { "x": 820, "y": 3138, "alignment": "left" },
-        "total": { "x": 4071, "y": 3138, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 3466, "alignment": "center" },
-        "kp": { "x": 3674, "y": 3466, "alignment": "center" },
-        "pp": { "x": 3277, "y": 3466, "alignment": "center" },
-        "rank": { "x": 559, "y": 3466, "alignment": "center" },
-        "team": { "x": 820, "y": 3466, "alignment": "left" },
-        "total": { "x": 4071, "y": 3466, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 3794, "alignment": "center" },
-        "kp": { "x": 3674, "y": 3794, "alignment": "center" },
-        "pp": { "x": 3277, "y": 3794, "alignment": "center" },
-        "rank": { "x": 559, "y": 3794, "alignment": "center" },
-        "team": { "x": 820, "y": 3794, "alignment": "left" },
-        "total": { "x": 4071, "y": 3794, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 4122, "alignment": "center" },
-        "kp": { "x": 3674, "y": 4122, "alignment": "center" },
-        "pp": { "x": 3277, "y": 4122, "alignment": "center" },
-        "rank": { "x": 559, "y": 4122, "alignment": "center" },
-        "team": { "x": 820, "y": 4122, "alignment": "left" },
-        "total": { "x": 4071, "y": 4122, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 4450, "alignment": "center" },
-        "kp": { "x": 3674, "y": 4450, "alignment": "center" },
-        "pp": { "x": 3277, "y": 4450, "alignment": "center" },
-        "rank": { "x": 559, "y": 4450, "alignment": "center" },
-        "team": { "x": 820, "y": 4450, "alignment": "left" },
-        "total": { "x": 4071, "y": 4450, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 4778, "alignment": "center" },
-        "kp": { "x": 3674, "y": 4778, "alignment": "center" },
-        "pp": { "x": 3277, "y": 4778, "alignment": "center" },
-        "rank": { "x": 559, "y": 4778, "alignment": "center" },
-        "team": { "x": 820, "y": 4778, "alignment": "left" },
-        "total": { "x": 4071, "y": 4778, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 5106, "alignment": "center" },
-        "kp": { "x": 3674, "y": 5106, "alignment": "center" },
-        "pp": { "x": 3277, "y": 5106, "alignment": "center" },
-        "rank": { "x": 559, "y": 5106, "alignment": "center" },
-        "team": { "x": 820, "y": 5106, "alignment": "left" },
-        "total": { "x": 4071, "y": 5106, "alignment": "center" }
-      },
-      {
-        "w": { "x": 2880, "y": 5434, "alignment": "center" },
-        "kp": { "x": 3674, "y": 5434, "alignment": "center" },
-        "pp": { "x": 3277, "y": 5434, "alignment": "center" },
-        "rank": { "x": 559, "y": 5434, "alignment": "center" },
-        "team": { "x": 820, "y": 5434, "alignment": "left" },
-        "total": { "x": 4071, "y": 5434, "alignment": "center" }
-      }
-    ],
-    "scoreboard": {
-      "color_rgb": [0, 0, 0],
-      "font_path": "Anton-Regular.ttf",
-      "font_size": 130
-    }
-  }, null, 2))
+  const [mappingConfig, setMappingConfig] = useState(JSON.stringify(DEFAULT_MAPPING_CONFIG, null, 2))
   const [previewImage, setPreviewImage] = useState(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1082,6 +1084,9 @@ const ThemeBuilderView = ({ addLog }) => {
   const [imageError, setImageError] = useState(false)
   const [showJsonViewer, setShowJsonViewer] = useState(false)
   const [previewMode, setPreviewMode] = useState('image') // 'image' for picker, 'result' for rendered preview
+  const [pendingThemes, setPendingThemes] = useState([])
+  const [showPendingDropdown, setShowPendingDropdown] = useState(false)
+  const [fetchingPending, setFetchingPending] = useState(false)
   
   // Update Config States
   const [selectedCellIdx, setSelectedCellIdx] = useState(0)
@@ -1095,6 +1100,62 @@ const ThemeBuilderView = ({ addLog }) => {
   const [startPos, setStartPos] = useState(null)
   const [currentPos, setCurrentPos] = useState(null)
   const imageRef = useRef(null)
+
+  const fetchPendingThemes = async () => {
+    // Toggle the dropdown
+    const willOpen = !showPendingDropdown;
+    setShowPendingDropdown(willOpen);
+    
+    if (willOpen) {
+      setFetchingPending(true)
+      try {
+        // Fetch themes to find those without config or empty config
+        const { data, error } = await supabase
+          .from('themes')
+          .select('*')
+          .order('created_at', { ascending: false })
+
+        if (error) throw error
+        
+        // Filter themes that are truly "pending" (null config, or config missing cells)
+        const pending = (data || []).filter(t => {
+          if (!t.mapping_config) return true;
+          const config = t.mapping_config;
+          return !config.cells || config.cells.length === 0;
+        })
+        
+        setPendingThemes(pending)
+        addLog('info', `Fetched ${pending.length} pending themes out of ${data?.length || 0} total`)
+      } catch (err) {
+        console.error('Error fetching themes:', err)
+        addLog('error', 'Failed to fetch themes', err.message)
+      } finally {
+        setFetchingPending(false)
+      }
+    }
+  }
+
+  // Fetch themes on component mount
+  useEffect(() => {
+    fetchPendingThemes()
+  }, [])
+
+  const handleSelectPendingTheme = (theme) => {
+     setImageUrl(theme.url)
+     setThemeName(theme.name || 'Default Theme')
+     
+     // Use existing config if it has cells, otherwise use default template
+     if (theme.mapping_config && theme.mapping_config.cells && theme.mapping_config.cells.length > 0) {
+       setMappingConfig(JSON.stringify(theme.mapping_config, null, 2))
+       addLog('info', `Loaded existing config for: ${theme.name || theme.url}`)
+     } else {
+       setMappingConfig(JSON.stringify(DEFAULT_MAPPING_CONFIG, null, 2))
+       addLog('info', `Loaded default template for: ${theme.name || theme.url}`)
+     }
+     
+     setShowPendingDropdown(false)
+     setImageError(false)
+   }
 
   const handleUpdateMappingConfig = () => {
     if (!clickedCoord) return
@@ -1314,8 +1375,58 @@ const ThemeBuilderView = ({ addLog }) => {
   return (
     <div className="theme-builder">
       <div className="section-header">
-        <h2><Palette size={20} /> Theme Builder</h2>
-        <p className="subtitle">Design and verify custom leaderboard themes</p>
+        <div className="header-title-group">
+          <h2><Palette size={20} /> Theme Builder</h2>
+          <p className="subtitle">Design and verify custom leaderboard themes</p>
+        </div>
+        
+        <div className="header-actions-group">
+          <div className="pending-themes-container">
+            <button 
+              type="button"
+              className={`pending-themes-btn ${showPendingDropdown ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fetchPendingThemes();
+              }}
+              disabled={fetchingPending}
+              title="View themes with missing configuration"
+            >
+              {fetchingPending ? <RefreshCcw size={16} className="spin" /> : <List size={16} />}
+              Pending Themes
+              {pendingThemes.length > 0 && <span className="pending-count">{pendingThemes.length}</span>}
+            </button>
+            
+            {showPendingDropdown && (
+              <div className="pending-dropdown">
+                <div className="dropdown-header">
+                  <span>Pending Themes</span>
+                  <button onClick={() => setShowPendingDropdown(false)}><XCircle size={14} /></button>
+                </div>
+                <div className="dropdown-list">
+                  {pendingThemes.length === 0 ? (
+                    <div className="dropdown-empty">No pending themes found</div>
+                  ) : (
+                    pendingThemes.map(theme => (
+                      <div 
+                        key={theme.id} 
+                        className="dropdown-item"
+                        onClick={() => handleSelectPendingTheme(theme)}
+                      >
+                        <div className="item-info">
+                          <span className="item-name">{theme.name || 'Unnamed Theme'}</span>
+                          <span className="item-url">{theme.url}</span>
+                        </div>
+                        <ChevronLeft size={14} className="item-arrow" />
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="builder-container">
