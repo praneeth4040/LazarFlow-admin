@@ -967,105 +967,15 @@ const NotificationView = () => {
   )
 }
 
-const DEFAULT_MAPPING_CONFIG = {
-  "cells": [
-    {
-      "w": { "x": 2890, "y": 1826, "alignment": "center" },
-      "kp": { "x": 3690, "y": 1826, "alignment": "center" },
-      "pp": { "x": 3290, "y": 1826, "alignment": "center" },
-      "rank": { "x": 559, "y": 1826, "alignment": "center" },
-      "team": { "x": 820, "y": 1826, "alignment": "left" },
-      "total": { "x": 4090, "y": 1826, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 2154, "alignment": "center" },
-      "kp": { "x": 3674, "y": 2154, "alignment": "center" },
-      "pp": { "x": 3277, "y": 2154, "alignment": "center" },
-      "rank": { "x": 559, "y": 2154, "alignment": "center" },
-      "team": { "x": 820, "y": 2154, "alignment": "left" },
-      "total": { "x": 4071, "y": 2154, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 2482, "alignment": "center" },
-      "kp": { "x": 3674, "y": 2482, "alignment": "center" },
-      "pp": { "x": 3277, "y": 2482, "alignment": "center" },
-      "rank": { "x": 559, "y": 2482, "alignment": "center" },
-      "team": { "x": 820, "y": 2482, "alignment": "left" },
-      "total": { "x": 4071, "y": 2482, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 2810, "alignment": "center" },
-      "kp": { "x": 3674, "y": 2810, "alignment": "center" },
-      "pp": { "x": 3277, "y": 2810, "alignment": "center" },
-      "rank": { "x": 559, "y": 2810, "alignment": "center" },
-      "team": { "x": 820, "y": 2810, "alignment": "left" },
-      "total": { "x": 4071, "y": 2810, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 3138, "alignment": "center" },
-      "kp": { "x": 3674, "y": 3138, "alignment": "center" },
-      "pp": { "x": 3277, "y": 3138, "alignment": "center" },
-      "rank": { "x": 559, "y": 3138, "alignment": "center" },
-      "team": { "x": 820, "y": 3138, "alignment": "left" },
-      "total": { "x": 4071, "y": 3138, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 3466, "alignment": "center" },
-      "kp": { "x": 3674, "y": 3466, "alignment": "center" },
-      "pp": { "x": 3277, "y": 3466, "alignment": "center" },
-      "rank": { "x": 559, "y": 3466, "alignment": "center" },
-      "team": { "x": 820, "y": 3466, "alignment": "left" },
-      "total": { "x": 4071, "y": 3466, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 3794, "alignment": "center" },
-      "kp": { "x": 3674, "y": 3794, "alignment": "center" },
-      "pp": { "x": 3277, "y": 3794, "alignment": "center" },
-      "rank": { "x": 559, "y": 3794, "alignment": "center" },
-      "team": { "x": 820, "y": 3794, "alignment": "left" },
-      "total": { "x": 4071, "y": 3794, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 4122, "alignment": "center" },
-      "kp": { "x": 3674, "y": 4122, "alignment": "center" },
-      "pp": { "x": 3277, "y": 4122, "alignment": "center" },
-      "rank": { "x": 559, "y": 4122, "alignment": "center" },
-      "team": { "x": 820, "y": 4122, "alignment": "left" },
-      "total": { "x": 4071, "y": 4122, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 4450, "alignment": "center" },
-      "kp": { "x": 3674, "y": 4450, "alignment": "center" },
-      "pp": { "x": 3277, "y": 4450, "alignment": "center" },
-      "rank": { "x": 559, "y": 4450, "alignment": "center" },
-      "team": { "x": 820, "y": 4450, "alignment": "left" },
-      "total": { "x": 4071, "y": 4450, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 4778, "alignment": "center" },
-      "kp": { "x": 3674, "y": 4778, "alignment": "center" },
-      "pp": { "x": 3277, "y": 4778, "alignment": "center" },
-      "rank": { "x": 559, "y": 4778, "alignment": "center" },
-      "team": { "x": 820, "y": 4778, "alignment": "left" },
-      "total": { "x": 4071, "y": 4778, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 5106, "alignment": "center" },
-      "kp": { "x": 3674, "y": 5106, "alignment": "center" },
-      "pp": { "x": 3277, "y": 5106, "alignment": "center" },
-      "rank": { "x": 559, "y": 5106, "alignment": "center" },
-      "team": { "x": 820, "y": 5106, "alignment": "left" },
-      "total": { "x": 4071, "y": 5106, "alignment": "center" }
-    },
-    {
-      "w": { "x": 2880, "y": 5434, "alignment": "center" },
-      "kp": { "x": 3674, "y": 5434, "alignment": "center" },
-      "pp": { "x": 3277, "y": 5434, "alignment": "center" },
-      "rank": { "x": 559, "y": 5434, "alignment": "center" },
-      "team": { "x": 820, "y": 5434, "alignment": "left" },
-      "total": { "x": 4071, "y": 5434, "alignment": "center" }
-    }
-  ],
+const EMPTY_MAPPING_CONFIG = {
+  "cells": Array(12).fill(null).map(() => ({
+    "w": { "x": 0, "y": 0, "alignment": "center" },
+    "kp": { "x": 0, "y": 0, "alignment": "center" },
+    "pp": { "x": 0, "y": 0, "alignment": "center" },
+    "rank": { "x": 0, "y": 0, "alignment": "center" },
+    "team": { "x": 0, "y": 0, "alignment": "left" },
+    "total": { "x": 0, "y": 0, "alignment": "center" }
+  })),
   "scoreboard": {
     "color_rgb": [0, 0, 0],
     "font_path": "Anton-Regular.ttf",
@@ -1076,7 +986,7 @@ const DEFAULT_MAPPING_CONFIG = {
 const ThemeBuilderView = ({ addLog }) => {
   const [themeName, setThemeName] = useState('Default Theme')
   const [imageUrl, setImageUrl] = useState('https://xsxwzwcfaflzynsyryzq.supabase.co/storage/v1/object/public/themes/optimized/design1_base.png?')
-  const [mappingConfig, setMappingConfig] = useState(JSON.stringify(DEFAULT_MAPPING_CONFIG, null, 2))
+  const [mappingConfig, setMappingConfig] = useState(JSON.stringify(EMPTY_MAPPING_CONFIG, null, 2))
   const [previewImage, setPreviewImage] = useState(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1144,13 +1054,13 @@ const ThemeBuilderView = ({ addLog }) => {
      setImageUrl(theme.url)
      setThemeName(theme.name || 'Default Theme')
      
-     // Use existing config if it has cells, otherwise use default template
+     // Use existing config if it has cells, otherwise use empty template
      if (theme.mapping_config && theme.mapping_config.cells && theme.mapping_config.cells.length > 0) {
        setMappingConfig(JSON.stringify(theme.mapping_config, null, 2))
        addLog('info', `Loaded existing config for: ${theme.name || theme.url}`)
      } else {
-       setMappingConfig(JSON.stringify(DEFAULT_MAPPING_CONFIG, null, 2))
-       addLog('info', `Loaded default template for: ${theme.name || theme.url}`)
+       setMappingConfig(JSON.stringify(EMPTY_MAPPING_CONFIG, null, 2))
+       addLog('info', `Loaded empty template for: ${theme.name || theme.url}`)
      }
      
      setShowPendingDropdown(false)
@@ -1295,7 +1205,7 @@ const ThemeBuilderView = ({ addLog }) => {
       console.log('Payload:', payload)
       addLog('request', 'POST /api/render/preview-render', payload)
 
-      const response = await fetch('http://localhost:5000/api/render/preview-render', {
+      const response = await fetch('http://localhost:10000/api/render/preview-render', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
