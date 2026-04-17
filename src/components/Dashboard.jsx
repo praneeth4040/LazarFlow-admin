@@ -1162,6 +1162,99 @@ const ClientPreviewOverlay = ({ config, imageRef, imageUrl, selectedCellIdx }) =
   );
 };
 
+// ── Grid Guide Overlay: Canva-style alignment lines ──
+const FIELD_COLORS = {
+  rank:  '#6366f1', // indigo
+  team:  '#10b981', // green
+  w:     '#f59e0b', // amber
+  pp:    '#ec4899', // pink
+  kp:    '#06b6d4', // cyan
+  total: '#a855f7', // purple
+}
+
+const GridGuideOverlay = ({ imageRef, imageUrl, columnX, rowYFirst, rowYLast }) => {
+  const [dims, setDims] = useState({ w: 0, h: 0 })
+
+  useEffect(() => {
+    const img = imageRef.current
+    if (!img) return
+    const update = () => {
+      const r = img.getBoundingClientRect()
+      if (r.width > 0) setDims({ w: r.width, h: r.height })
+    }
+    if (img.complete) update()
+    img.addEventListener('load', update)
+    window.addEventListener('resize', update)
+    const t = setInterval(update, 400)
+    return () => { img.removeEventListener('load', update); window.removeEventListener('resize', update); clearInterval(t) }
+  }, [imageRef, imageUrl])
+
+  if (!imageRef.current || dims.w === 0) return null
+  const nw = imageRef.current.naturalWidth
+  const nh = imageRef.current.naturalHeight
+  if (!nw || !nh) return null
+
+  const sx = dims.w / nw
+  const sy = dims.h / nh
+
+  // All 12 row Y positions (only if both anchors set)
+  const rowYs = (rowYFirst !== null && rowYLast !== null)
+    ? Array.from({ length: 12 }, (_, i) => Math.round(rowYFirst + (rowYLast - rowYFirst) * (i / 11)))
+    : (rowYFirst !== null ? [rowYFirst] : [])
+
+  return (
+    <div style={{ position: 'absolute', top: 0, left: 0, width: dims.w, height: dims.h, pointerEvents: 'none', overflow: 'hidden' }}>
+
+      {/* Vertical column lines */}
+      {Object.entries(columnX).map(([field, x]) => {
+        if (x === null) return null
+        const px = x * sx
+        const color = FIELD_COLORS[field] || '#6366f1'
+        return (
+          <div key={`col-${field}`}>
+            {/* Line */}
+            <div style={{ position: 'absolute', left: px, top: 0, width: 2, height: '100%', background: color, opacity: 0.75, transform: 'translateX(-50%)' }} />
+            {/* Label */}
+            <div style={{
+              position: 'absolute', left: px, top: 8,
+              transform: 'translateX(-50%)',
+              background: color, color: '#fff',
+              fontSize: 10, fontWeight: 800,
+              padding: '2px 6px', borderRadius: 4,
+              whiteSpace: 'nowrap', letterSpacing: '0.05em'
+            }}>{field.toUpperCase()}</div>
+          </div>
+        )
+      })}
+
+      {/* Horizontal row lines */}
+      {rowYs.map((y, idx) => {
+        const py = y * sy
+        const isAnchor = idx === 0 || (rowYLast !== null && idx === 11)
+        return (
+          <div key={`row-${idx}`}>
+            <div style={{
+              position: 'absolute', left: 0, top: py, width: '100%',
+              height: isAnchor ? 2 : 1,
+              background: isAnchor ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)',
+              transform: 'translateY(-50%)'
+            }} />
+            {isAnchor && (
+              <div style={{
+                position: 'absolute', right: 8, top: py,
+                transform: 'translateY(-50%)',
+                background: 'rgba(0,0,0,0.75)', color: '#fff',
+                fontSize: 10, fontWeight: 700,
+                padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap'
+              }}>Row {idx + 1}</div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 const ThemeBuilderView = ({ addLog }) => {
   const [themeName, setThemeName] = useState('Default Theme')
   const [imageUrl, setImageUrl] = useState('https://xsxwzwcfaflzynsyryzq.supabase.co/storage/v1/object/public/themes/optimized/design1_base.png?')
@@ -1194,6 +1287,24 @@ const ThemeBuilderView = ({ addLog }) => {
   const [startPos, setStartPos] = useState(null)
   const [currentPos, setCurrentPos] = useState(null)
   const imageRef = useRef(null)
+
+  // Grid Mode States
+  const GRID_FIELDS = ['rank', 'team', 'w', 'pp', 'kp', 'total']
+  const [gridMode, setGridMode] = useState(false)
+  const [gridStep, setGridStep] = useState('columns') // 'columns' | 'rows' | 'styles'
+  const [gridActiveField, setGridActiveField] = useState('rank')
+  const [columnX, setColumnX] = useState({ rank: null, team: null, w: null, pp: null, kp: null, total: null })
+  const [rowYFirst, setRowYFirst] = useState(null)
+  const [rowYLast, setRowYLast] = useState(null)
+  const [rowYClickStep, setRowYClickStep] = useState('first') // 'first' | 'last'
+  const [gridFieldStyles, setGridFieldStyles] = useState({
+    rank:  { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
+    team:  { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'left' },
+    w:     { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
+    pp:    { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
+    kp:    { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
+    total: { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
+  })
 
   const fetchPendingThemes = async () => {
     // Toggle the dropdown
@@ -1344,6 +1455,38 @@ const ThemeBuilderView = ({ addLog }) => {
   }
 
   const handleMouseDown = (e) => {
+    // ── Grid Mode intercepts all clicks ──
+    if (gridMode && (gridStep === 'columns' || gridStep === 'rows')) {
+      const pos = getRelativePos(e)
+      if (!pos) return
+
+      if (gridStep === 'columns') {
+        setColumnX(prev => ({ ...prev, [gridActiveField]: pos.x }))
+        addLog('info', `Set ${gridActiveField.toUpperCase()} column X → ${pos.x}`)
+        const currentIdx = GRID_FIELDS.indexOf(gridActiveField)
+        if (currentIdx < GRID_FIELDS.length - 1) {
+          setGridActiveField(GRID_FIELDS[currentIdx + 1])
+        } else {
+          // All columns done → move to rows step
+          setGridStep('rows')
+          setRowYClickStep('first')
+          addLog('info', 'All columns set! Now click Row 1 on the image.')
+        }
+      } else if (gridStep === 'rows') {
+        if (rowYClickStep === 'first') {
+          setRowYFirst(pos.y)
+          setRowYClickStep('last')
+          addLog('info', `Set Row 1 Y → ${pos.y}. Now click Row 12.`)
+        } else {
+          setRowYLast(pos.y)
+          addLog('info', `Set Row 12 Y → ${pos.y}. Move to Styles & Generate!`)
+          setGridStep('styles')
+        }
+      }
+      return
+    }
+
+    // ── Normal mode ──
     if (selectionMode === 'point') {
       const pos = getRelativePos(e)
       if (pos) {
@@ -1392,6 +1535,70 @@ const ThemeBuilderView = ({ addLog }) => {
       setClickedCoord(selectionInfo)
       addLog('info', `Area selected (${selectionMode}): X:${selectionInfo.x}, Y:${selectionInfo.y}, W:${width}, H:${height}, Center:${centerX},${centerY}`)
     }
+  }
+
+  const hexToRgbArray = (hex) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+    return result
+      ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)]
+      : [255, 255, 255]
+  }
+
+  const handleGenerateGridConfig = () => {
+    const missingX = GRID_FIELDS.filter(f => columnX[f] === null)
+    if (missingX.length > 0) {
+      setStatus({ type: 'error', message: `Missing column X for: ${missingX.join(', ')}` })
+      return
+    }
+    if (rowYFirst === null || rowYLast === null) {
+      setStatus({ type: 'error', message: 'Set both Row 1 and Row 12 Y positions first.' })
+      return
+    }
+
+    const NUM_ROWS = 12
+    const rowYValues = Array.from({ length: NUM_ROWS }, (_, i) =>
+      Math.round(rowYFirst + (rowYLast - rowYFirst) * (i / (NUM_ROWS - 1)))
+    )
+
+    const cells = rowYValues.map(y => {
+      const cell = {}
+      GRID_FIELDS.forEach(field => {
+        const s = gridFieldStyles[field]
+        cell[field] = {
+          x: columnX[field],
+          y,
+          alignment: s.alignment,
+          font_size: s.font_size,
+          font_path: s.font_path,
+          color_rgb: hexToRgbArray(s.color_hex),
+        }
+      })
+      return cell
+    })
+
+    const generated = {
+      cells,
+      scoreboard: {
+        color_rgb: [255, 255, 255],
+        font_path: 'Anton-Regular.ttf',
+        font_size: 130,
+      },
+      extra_fields: {
+        tournament_name: {
+          x: 0, y: 0, alignment: 'center',
+          font_size: 200, color_rgb: [255, 255, 255],
+          font_path: 'Anton-Regular.ttf'
+        }
+      }
+    }
+
+    setMappingConfig(JSON.stringify(generated, null, 2))
+    addLog('success', `Grid config generated! ${NUM_ROWS} rows × ${GRID_FIELDS.length} fields = ${NUM_ROWS * GRID_FIELDS.length} entries auto-filled.`)
+    setStatus({ type: 'success', message: '✅ Config generated! Review the JSON then click Verify & Save.' })
+    // Exit grid mode
+    setGridMode(false)
+    setGridStep('columns')
+    setGridActiveField('rank')
   }
 
   const handleGeneratePreview = async () => {
@@ -1560,7 +1767,70 @@ const ThemeBuilderView = ({ addLog }) => {
           <p className="subtitle">Design and verify custom leaderboard themes</p>
         </div>
         
-        <div className="header-actions-group">
+        <div className="header-actions-group">          
+          <button
+            type="button"
+            className={`grid-mode-btn ${gridMode ? 'active' : ''}`}
+            onClick={() => {
+              const entering = !gridMode
+              setGridMode(entering)
+              if (entering) {
+                // ── Pre-populate from existing config if available ──
+                let newColX = { rank: null, team: null, w: null, pp: null, kp: null, total: null }
+                let newRowYFirst = null
+                let newRowYLast = null
+                let newStyles = { ...gridFieldStyles }
+                let hasExisting = false
+
+                try {
+                  const config = JSON.parse(mappingConfig)
+                  if (config.cells && config.cells.length > 0) {
+                    const first = config.cells[0]
+                    const last = config.cells[config.cells.length - 1]
+                    const rgb2hex = (rgb) => rgb ? '#' + rgb.map(v => v.toString(16).padStart(2, '0')).join('') : '#ffffff'
+
+                    GRID_FIELDS.forEach(field => {
+                      if (first[field] && (first[field].x !== 0 || first[field].y !== 0)) {
+                        newColX[field] = first[field].x
+                        newStyles[field] = {
+                          font_size: first[field].font_size || 130,
+                          font_path: first[field].font_path || 'Anton-Regular.ttf',
+                          color_hex: rgb2hex(first[field].color_rgb),
+                          alignment: first[field].alignment || 'center',
+                        }
+                        hasExisting = true
+                      }
+                    })
+
+                    const ff = GRID_FIELDS.find(f => first[f] && first[f].y !== 0)
+                    const lf = GRID_FIELDS.find(f => last[f] && last[f].y !== 0)
+                    if (ff) newRowYFirst = first[ff].y
+                    if (lf) newRowYLast = last[lf].y
+                  }
+                } catch (_) {}
+
+                setColumnX(newColX)
+                setRowYFirst(newRowYFirst)
+                setRowYLast(newRowYLast)
+                setGridFieldStyles(newStyles)
+                setGridStep('columns')
+                // Point active field to first un-set column, or rank if all set
+                setGridActiveField(GRID_FIELDS.find(f => newColX[f] === null) || 'rank')
+                setRowYClickStep(newRowYFirst === null ? 'first' : 'last')
+                setPreviewMode('image')
+
+                if (hasExisting) {
+                  addLog('info', '⚡ Grid Mode — existing config pre-loaded. Click chips to adjust, then re-generate.')
+                } else {
+                  addLog('info', '⚡ Grid Mode started — click each column on the image.')
+                }
+              }
+            }}
+            title="⚡ Smart Grid Mode: set all 72 entries in ~8 clicks"
+          >
+            <LayoutGrid size={16} />
+            {gridMode ? 'Exit Grid Mode' : '⚡ Grid Mode'}
+          </button>
           <div className="pending-themes-container">
             <button 
               type="button"
@@ -1610,6 +1880,179 @@ const ThemeBuilderView = ({ addLog }) => {
       </div>
 
       <div className="builder-container">
+
+        {/* ── Grid Mode Wizard ── */}
+        {gridMode ? (
+          <div className="builder-form grid-wizard">
+
+            {/* Step indicator */}
+            <div className="grid-steps-indicator">
+              <div className={`grid-step-pill ${gridStep === 'columns' ? 'active' : 'done'}`}>
+                <span className="step-num">1</span> Columns
+              </div>
+              <div className="step-arrow">→</div>
+              <div className={`grid-step-pill ${gridStep === 'rows' ? 'active' : gridStep === 'styles' ? 'done' : ''}`}>
+                <span className="step-num">2</span> Rows
+              </div>
+              <div className="step-arrow">→</div>
+              <div className={`grid-step-pill ${gridStep === 'styles' ? 'active' : ''}`}>
+                <span className="step-num">3</span> Styles
+              </div>
+            </div>
+
+            {/* ── Step 1: Columns ── */}
+            {gridStep === 'columns' && (
+              <div className="grid-step-content">
+                <div className="grid-instruction">
+                  <span className="instruction-icon">👆</span>
+                  <div>
+                    <strong>Click on the image</strong> where the
+                    <span className="highlight-field"> {gridActiveField.toUpperCase()} </span>
+                    column is. Auto-advances to next field.
+                  </div>
+                </div>
+
+                <div className="grid-field-chips">
+                  {GRID_FIELDS.map(field => (
+                    <button
+                      key={field}
+                      className={`field-chip ${
+                        gridActiveField === field ? 'active' :
+                        columnX[field] !== null ? 'done' : ''
+                      }`}
+                      onClick={() => setGridActiveField(field)}
+                      title={`Click to re-select ${field}`}
+                    >
+                      {columnX[field] !== null ? '✓ ' : ''}{field.toUpperCase()}
+                      {columnX[field] !== null && (
+                        <span className="chip-x">x={columnX[field]}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid-progress-bar">
+                  <div
+                    className="grid-progress-fill"
+                    style={{ width: `${(GRID_FIELDS.filter(f => columnX[f] !== null).length / GRID_FIELDS.length) * 100}%` }}
+                  />
+                  <span>{GRID_FIELDS.filter(f => columnX[f] !== null).length} / {GRID_FIELDS.length} columns set</span>
+                </div>
+
+                {GRID_FIELDS.every(f => columnX[f] !== null) && (
+                  <button className="grid-next-btn" onClick={() => { setGridStep('rows'); setRowYClickStep('first') }}>
+                    Next: Set Rows →
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* ── Step 2: Rows ── */}
+            {gridStep === 'rows' && (
+              <div className="grid-step-content">
+                <div className="grid-instruction">
+                  <span className="instruction-icon">👆</span>
+                  <div>
+                    <strong>Click on the image</strong> at the vertical center of
+                    <span className="highlight-field"> {rowYClickStep === 'first' ? 'ROW 1 (top team)' : 'ROW 12 (bottom team)'}</span>.
+                    Y for all rows between will be auto-spaced.
+                  </div>
+                </div>
+
+                <div className="grid-row-status">
+                  <div className={`row-status-item ${rowYFirst !== null ? 'done' : rowYClickStep === 'first' ? 'active' : ''}`}>
+                    <span className="row-label">Row 1 (top)</span>
+                    <span className="row-value">{rowYFirst !== null ? `Y = ${rowYFirst}` : 'click image ↗'}</span>
+                  </div>
+                  <div className="row-spacer">⋮ 10 rows auto-spaced ⋮</div>
+                  <div className={`row-status-item ${rowYLast !== null ? 'done' : rowYClickStep === 'last' ? 'active' : ''}`}>
+                    <span className="row-label">Row 12 (bottom)</span>
+                    <span className="row-value">{rowYLast !== null ? `Y = ${rowYLast}` : 'click image ↗'}</span>
+                  </div>
+                </div>
+
+                <div className="grid-nav-actions">
+                  <button className="grid-back-btn" onClick={() => setGridStep('columns')}>← Back</button>
+                  {rowYFirst !== null && rowYLast !== null && (
+                    <button className="grid-next-btn" onClick={() => setGridStep('styles')}>Next: Styles →</button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Step 3: Styles & Generate ── */}
+            {gridStep === 'styles' && (
+              <div className="grid-step-content">
+                <div className="grid-instruction">
+                  <span className="instruction-icon">🎨</span>
+                  <div><strong>Set font, size & color</strong> once per column — applies to all 12 rows automatically.</div>
+                </div>
+
+                <div className="grid-styles-table">
+                  <div className="styles-row-header">
+                    <span>Field</span><span>Font</span><span>Size</span><span>Color</span>
+                  </div>
+                  {GRID_FIELDS.map(field => (
+                    <div key={field} className="styles-row">
+                      <span className="field-label-cell">{field.toUpperCase()}</span>
+                      <select
+                        value={gridFieldStyles[field].font_path}
+                        onChange={e => setGridFieldStyles(prev => ({ ...prev, [field]: { ...prev[field], font_path: e.target.value } }))}
+                        className="coord-selector"
+                      >
+                        {FONT_OPTIONS.map(f => <option key={f} value={f}>{f.split('-')[0]}</option>)}
+                      </select>
+                      <input
+                        type="number"
+                        value={gridFieldStyles[field].font_size}
+                        onChange={e => setGridFieldStyles(prev => ({ ...prev, [field]: { ...prev[field], font_size: parseInt(e.target.value) } }))}
+                        className="coord-selector"
+                        style={{ width: '65px' }}
+                      />
+                      <input
+                        type="color"
+                        value={gridFieldStyles[field].color_hex}
+                        onChange={e => setGridFieldStyles(prev => ({ ...prev, [field]: { ...prev[field], color_hex: e.target.value } }))}
+                        className="grid-color-input"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid-summary-box">
+                  <div className="summary-line">📐 Rows: Y={rowYFirst} (row 1) → Y={rowYLast} (row 12), evenly spaced</div>
+                  <div className="summary-line">📊 Columns: {GRID_FIELDS.map(f => `${f.toUpperCase()}@x=${columnX[f]}`).join(' · ')}</div>
+                  <div className="summary-line">⚡ Will generate <strong>72 entries</strong> (12 rows × 6 fields)</div>
+                </div>
+
+                <div className="grid-nav-actions">
+                  <button className="grid-back-btn" onClick={() => setGridStep('rows')}>← Back</button>
+                  <button className="grid-generate-btn" onClick={handleGenerateGridConfig}>
+                    <LayoutGrid size={16} /> Generate Config
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Always show theme name + image URL even in grid mode */}
+            <div className="grid-mode-meta">
+              <div className="form-section">
+                <label className="form-label">Theme Name</label>
+                <input type="text" value={themeName} onChange={e => setThemeName(e.target.value)} className="builder-input" />
+              </div>
+              <div className="form-section">
+                <label className="form-label">Background Image URL</label>
+                <div className="input-with-icon">
+                  <ImageIcon size={16} className="input-icon" />
+                  <input type="text" value={imageUrl} onChange={e => setImageUrl(e.target.value)} className="builder-input" placeholder="https://..." />
+                </div>
+              </div>
+            </div>
+          </div>
+
+        ) : (
+
+        /* ── Normal Form ── */
         <div className="builder-form">
           <div className="form-section">
             <label className="form-label">Theme Name</label>
@@ -1721,6 +2164,7 @@ const ThemeBuilderView = ({ addLog }) => {
             </button>
           </div>
         </div>
+        )}
 
         <div className="builder-preview">
           <div className="preview-header-with-toggle">
@@ -1956,7 +2400,7 @@ const ThemeBuilderView = ({ addLog }) => {
                   }}
                 />
                 
-                {/* Client-Side Preview Overlay (Integrated & Separate) */}
+                {/* Client-Side Preview Overlay */}
                 {((previewMode === 'image' && showLiveOverlay) || previewMode === 'client') && (
                     <ClientPreviewOverlay 
                     config={(() => {
@@ -1969,6 +2413,17 @@ const ThemeBuilderView = ({ addLog }) => {
                     imageRef={imageRef}
                     imageUrl={imageUrl}
                     selectedCellIdx={selectedCellIdx}
+                  />
+                )}
+
+                {/* ⚡ Grid Guide Lines — Canva-style alignment overlay */}
+                {gridMode && (
+                  <GridGuideOverlay
+                    imageRef={imageRef}
+                    imageUrl={imageUrl}
+                    columnX={columnX}
+                    rowYFirst={rowYFirst}
+                    rowYLast={rowYLast}
                   />
                 )}
                 
