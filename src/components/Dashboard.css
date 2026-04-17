@@ -1713,21 +1713,33 @@
 .image-preview-area {
   flex: 1;
   min-height: 400px;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.4);
   border: 2px dashed var(--border);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 16px 0;
-  overflow: hidden;
+  overflow: auto;
   position: relative;
+  width: 100%;
+  max-width: 1000px; /* Increased to allow wider designs */
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .preview-rendered-img {
-  max-width: 100%;
-  max-height: 100%;
+  max-width: 1000px;
+  width: 100%;
+  height: auto; /* Respects natural aspect ratio */
   object-fit: contain;
+  display: block;
+}
+
+.preview-relative-container {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
 }
 
 .preview-placeholder {
@@ -1881,6 +1893,48 @@
 .selector-group {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.color-picker-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.color-preview {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow);
+}
+
+.color-preview:hover {
+  transform: scale(1.05);
+  border-color: var(--primary);
+}
+
+.hidden-color-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.coord-selector.font-size-input {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  color: var(--text-main);
+  height: 38px;
 }
 
 .coord-selector {
@@ -1997,6 +2051,25 @@
 .toolbar-btn:hover {
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-main);
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 4px;
+  align-self: center;
+}
+
+.overlay-toggle.active {
+  background: var(--success-dim);
+  border: 1px solid var(--success);
+  color: var(--success-bright);
+}
+
+.overlay-toggle.active:hover {
+  background: var(--success);
+  color: white;
 }
 
 .toolbar-btn.active {
