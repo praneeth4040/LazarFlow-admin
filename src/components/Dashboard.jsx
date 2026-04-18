@@ -977,11 +977,190 @@ const EMPTY_MAPPING_CONFIG = {
     "total": { "x": 0, "y": 0, "alignment": "center" }
   })),
   "scoreboard": {
-    "color_rgb": [0, 0, 0],
+    "color_rgb": [255, 255, 255],
     "font_path": "Anton-Regular.ttf",
     "font_size": 130
+  },
+  "extra_fields": {
+    "tournament_name": {
+      "x": 0,
+      "y": 0,
+      "alignment": "center",
+      "font_size": 200,
+      "color_rgb": [255, 255, 255],
+      "font_path": "Anton-Regular.ttf"
+    }
   }
 }
+
+const DUMMY_TEAMS = [
+  { rank: "1", team: "ALPHA SQUAD", w: "1", pp: "15", kp: "22", total: "38" },
+  { rank: "2", team: "BETA TEAM", w: "0", pp: "12", kp: "18", total: "30" },
+  { rank: "3", team: "GAMMA FORCE", w: "0", pp: "10", kp: "15", total: "25" },
+  { rank: "4", team: "DELTA OPS", w: "0", pp: "8", kp: "12", total: "20" },
+  { rank: "5", team: "EPSILON V", w: "0", pp: "7", kp: "10", total: "17" },
+  { rank: "6", team: "ZETA PRIME", w: "0", pp: "6", kp: "8", total: "14" },
+  { rank: "7", team: "ETA RIDERS", w: "0", pp: "5", kp: "6", total: "11" },
+  { rank: "8", team: "THETA X", w: "0", pp: "4", kp: "5", total: "9" },
+  { rank: "9", team: "IOTA GANG", w: "0", pp: "3", kp: "4", total: "7" },
+  { rank: "10", team: "KAPPA CLAN", w: "0", pp: "2", kp: "3", total: "5" },
+  { rank: "11", team: "LAMBDA L", w: "0", pp: "1", kp: "2", total: "3" },
+  { rank: "12", team: "MU RAIDERS", w: "0", pp: "0", kp: "1", total: "1" }
+]
+
+const ClientPreviewOverlay = ({ config, imageRef, imageUrl, selectedCellIdx }) => {
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const img = imageRef.current;
+    if (!img) return;
+
+    const updateDimensions = () => {
+      const rect = img.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setDimensions({ width: rect.width, height: rect.height });
+      }
+    };
+
+    // If the image is already loaded, update immediately
+    if (img.complete) {
+      updateDimensions();
+    }
+    
+    // Add load event listener to capture dimensions once image loads
+    img.addEventListener('load', updateDimensions);
+    window.addEventListener('resize', updateDimensions);
+    
+    // Check periodically for a few seconds as fallback (sometimes rects are tricky)
+    const interval = setInterval(updateDimensions, 500);
+    
+    return () => {
+      img.removeEventListener('load', updateDimensions);
+      window.removeEventListener('resize', updateDimensions);
+      clearInterval(interval);
+    };
+  }, [imageRef, imageUrl]);
+
+  if (!imageRef.current || !config || !config.cells || dimensions.width === 0) return null;
+
+  const naturalWidth = imageRef.current.naturalWidth;
+  const naturalHeight = imageRef.current.naturalHeight;
+  
+  if (!naturalWidth || !naturalHeight) return null;
+  
+  const scaleX = dimensions.width / naturalWidth;
+  const scaleY = dimensions.height / naturalHeight;
+
+  const scoreboard = config.scoreboard || {};
+  const baseColor = scoreboard.color_rgb || [255, 255, 255];
+  const color = `rgb(${baseColor.join(',')})`;
+  const baseFontSize = (scoreboard.font_size || 130) * scaleY;
+
+  // Helper to map .ttf filenames to CSS font families
+  const getFontFamily = (fontPath) => {
+    if (!fontPath) return 'sans-serif';
+    if (fontPath.includes('Anton')) return '"Anton", sans-serif';
+    if (fontPath.includes('Roboto')) return '"Roboto", sans-serif';
+    if (fontPath.includes('Montserrat')) return '"Montserrat", sans-serif';
+    if (fontPath.includes('Bebas')) return '"Bebas Neue", sans-serif';
+    return 'sans-serif';
+  };
+
+  return (
+    <div 
+      className="client-preview-overlay"
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: dimensions.width,
+        height: dimensions.height,
+        pointerEvents: 'none',
+        overflow: 'hidden'
+      }}
+    >
+      {config.cells.map((cell, idx) => {
+        const teamData = DUMMY_TEAMS[idx] || {};
+        const isSelected = idx === selectedCellIdx;
+        return (
+          <div key={idx} className={`preview-row ${isSelected ? 'selected' : ''}`}>
+            {Object.entries(cell).map(([field, coords]) => {
+              if (field === 'id') return null;
+              // Skip rendering if coordinates are both 0 (uninitialized)
+              if (coords.x === 0 && coords.y === 0) return null;
+              
+              const value = teamData[field] || '';
+              
+              // Prioritize field-specific styles, fallback to scoreboard defaults
+              const fieldColor = coords.color_rgb ? `rgb(${coords.color_rgb.join(',')})` : (isSelected ? '#ffeb3b' : color);
+              const fieldFontSize = (coords.font_size || scoreboard.font_size || 130) * scaleY;
+              const fieldFontFamily = getFontFamily(coords.font_path || scoreboard.font_path);
+
+              return (
+                <div
+                  key={field}
+                  style={{
+                    position: 'absolute',
+                    left: coords.x * scaleX,
+                    top: coords.y * scaleY,
+                    color: fieldColor,
+                    fontSize: `${fieldFontSize}px`,
+                    fontWeight: 'bold',
+                    fontFamily: fieldFontFamily,
+                    transform: coords.alignment === 'center' ? 'translateX(-50%)' : 'none',
+                    textAlign: coords.alignment || 'left',
+                    whiteSpace: 'nowrap',
+                    textShadow: isSelected ? '0 0 10px rgba(0,0,0,0.8)' : '1px 1px 2px rgba(0,0,0,0.5)',
+                    zIndex: isSelected ? 10 : 1
+                  }}
+                >
+                  {value}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+      
+      {/* Extra Fields Rendering */}
+      {config.extra_fields && Object.entries(config.extra_fields).map(([fieldName, coords]) => {
+        // Skip rendering if coordinates are both 0 (uninitialized)
+        if (coords.x === 0 && coords.y === 0) return null;
+        
+        // Dummy data for extra fields
+        let value = "";
+        if (fieldName === 'tournament_name') value = "GRAND TOURNAMENT 2024";
+        
+        const isSelected = selectedField === fieldName;
+        const fieldColor = isSelected ? '#ffeb3b' : (coords.color_rgb ? `rgb(${coords.color_rgb.join(',')})` : 'rgb(255,255,255)');
+        const fieldFontSize = (coords.font_size || 130) * scaleY;
+        const fieldFontFamily = getFontFamily(coords.font_path || scoreboard.font_path);
+
+        return (
+          <div
+            key={fieldName}
+            style={{
+              position: 'absolute',
+              left: coords.x * scaleX,
+              top: coords.y * scaleY,
+              color: fieldColor,
+              fontSize: `${fieldFontSize}px`,
+              fontWeight: 'bold',
+              fontFamily: fieldFontFamily,
+              transform: coords.alignment === 'center' ? 'translateX(-50%)' : 'none',
+              textAlign: coords.alignment || 'left',
+              whiteSpace: 'nowrap',
+              textShadow: isSelected ? '0 0 10px rgba(0,0,0,0.8)' : '1px 1px 2px rgba(0,0,0,0.5)',
+              zIndex: isSelected ? 15 : 5
+            }}
+          >
+            {value}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 const ThemeBuilderView = ({ addLog }) => {
   const [themeName, setThemeName] = useState('Default Theme')
@@ -994,6 +1173,7 @@ const ThemeBuilderView = ({ addLog }) => {
   const [imageError, setImageError] = useState(false)
   const [showJsonViewer, setShowJsonViewer] = useState(false)
   const [previewMode, setPreviewMode] = useState('image') // 'image' for picker, 'result' for rendered preview
+  const [showLiveOverlay, setShowLiveOverlay] = useState(true)
   const [pendingThemes, setPendingThemes] = useState([])
   const [showPendingDropdown, setShowPendingDropdown] = useState(false)
   const [fetchingPending, setFetchingPending] = useState(false)
@@ -1001,7 +1181,11 @@ const ThemeBuilderView = ({ addLog }) => {
   // Update Config States
   const [selectedCellIdx, setSelectedCellIdx] = useState(0)
   const [selectedField, setSelectedField] = useState('team')
-  const CONFIG_FIELDS = ['rank', 'team', 'w', 'pp', 'kp', 'total']
+  const [tempFontSize, setTempFontSize] = useState(130)
+  const [tempFontPath, setTempFontPath] = useState('Anton-Regular.ttf')
+  const [tempColor, setTempColor] = useState('#ffffff')
+  const CONFIG_FIELDS = ['rank', 'team', 'w', 'pp', 'kp', 'total', 'tournament_name']
+  const FONT_OPTIONS = ['Anton-Regular.ttf', 'Roboto-Bold.ttf', 'Montserrat-Bold.ttf', 'BebasNeue-Regular.ttf']
   
   // Coordinate Picker States
   const [clickedCoord, setClickedCoord] = useState(null)
@@ -1080,18 +1264,50 @@ const ThemeBuilderView = ({ addLog }) => {
       const newY = clickedCoord.type && clickedCoord.type !== 'point' ? clickedCoord.centerY : clickedCoord.y
       
       const updatedConfig = { ...config }
-      const currentCell = { ...updatedConfig.cells[selectedCellIdx] }
       
-      currentCell[selectedField] = {
-        ...currentCell[selectedField],
-        x: newX,
-        y: newY
+      // Convert hex to [R, G, B]
+      const hexToRgb = (hex) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? [
+          parseInt(result[1], 16),
+          parseInt(result[2], 16),
+          parseInt(result[3], 16)
+        ] : [255, 255, 255];
+      };
+      const rgb = hexToRgb(tempColor);
+
+      if (selectedField === 'tournament_name') {
+        if (!updatedConfig.extra_fields) updatedConfig.extra_fields = {};
+        updatedConfig.extra_fields.tournament_name = {
+          ...updatedConfig.extra_fields.tournament_name,
+          x: newX,
+          y: newY,
+          alignment: "center", // Forced center for tournament name
+          font_size: tempFontSize,
+          color_rgb: rgb,
+          font_path: tempFontPath
+        };
+      } else {
+        if (!updatedConfig.cells || !updatedConfig.cells[selectedCellIdx]) {
+          throw new Error(`Cell ${selectedCellIdx + 1} not found in config`)
+        }
+        const currentCell = { ...updatedConfig.cells[selectedCellIdx] }
+        currentCell[selectedField] = {
+          ...currentCell[selectedField],
+          x: newX,
+          y: newY,
+          alignment: selectedField === 'team' ? "left" : "center", // Auto-alignment based on field
+          font_size: tempFontSize,
+          color_rgb: rgb,
+          font_path: tempFontPath
+        }
+        updatedConfig.cells[selectedCellIdx] = currentCell
       }
       
-      updatedConfig.cells[selectedCellIdx] = currentCell
+      const finalAlign = selectedField === 'tournament_name' || selectedField !== 'team' ? "center" : "left";
       
       setMappingConfig(JSON.stringify(updatedConfig, null, 2))
-      addLog('success', `Updated Row ${selectedCellIdx + 1} -> ${selectedField} to X:${newX}, Y:${newY}`)
+      addLog('success', `Updated ${selectedField === 'tournament_name' ? 'Extra' : 'Row ' + (selectedCellIdx + 1)} -> ${selectedField} to X:${newX}, Y:${newY}, Size:${tempFontSize}, Align:${finalAlign}`)
     } catch (e) {
       addLog('error', `Update failed: ${e.message}`)
       setStatus({ type: 'error', message: `Update failed: ${e.message}` })
@@ -1131,7 +1347,7 @@ const ThemeBuilderView = ({ addLog }) => {
     if (selectionMode === 'point') {
       const pos = getRelativePos(e)
       if (pos) {
-        setClickedCoord({ x: pos.x, y: pos.y })
+        setClickedCoord({ x: pos.x, y: pos.y, type: 'point' })
         addLog('info', `Picked coordinate: X:${pos.x}, Y:${pos.y}`)
       }
       return
@@ -1189,16 +1405,32 @@ const ThemeBuilderView = ({ addLog }) => {
     setPreviewImage(null)
 
     try {
-      let config;
-      try {
-        config = JSON.parse(mappingConfig)
-      } catch (e) {
-        throw new Error('Invalid JSON in Mapping Config')
-      }
+      const configToRender = JSON.parse(mappingConfig);
+      
+      // Clean up the config: remove fields that have x:0 and y:0
+       if (configToRender.cells) {
+         configToRender.cells = configToRender.cells.map(cell => {
+           const cleanedCell = { ...cell };
+           Object.keys(cleanedCell).forEach(field => {
+             if (field !== 'id' && cleanedCell[field] && cleanedCell[field].x === 0 && cleanedCell[field].y === 0) {
+               delete cleanedCell[field];
+             }
+           });
+           return cleanedCell;
+         });
+       }
+       
+       if (configToRender.extra_fields) {
+         Object.keys(configToRender.extra_fields).forEach(field => {
+           if (configToRender.extra_fields[field].x === 0 && configToRender.extra_fields[field].y === 0) {
+             delete configToRender.extra_fields[field];
+           }
+         });
+       }
 
       const payload = {
         imageUrl: imageUrl,
-        mappingConfig: config
+        mappingConfig: configToRender
       }
 
       console.log('--- GENERATING PREVIEW ---')
@@ -1246,10 +1478,47 @@ const ThemeBuilderView = ({ addLog }) => {
     setSaving(true)
     setStatus({ type: '', message: '' })
 
+    const cleanConfig = (configObj) => {
+      const cleaned = JSON.parse(JSON.stringify(configObj)); // Deep clone
+      const Y_OFFSET = 25; // Adjusting 25px up for server alignment
+      
+      if (cleaned.cells) {
+        cleaned.cells = cleaned.cells.map(cell => {
+          const cleanedCell = { ...cell };
+          Object.keys(cleanedCell).forEach(field => {
+            if (field !== 'id' && cleanedCell[field] && (cleanedCell[field].x !== 0 || cleanedCell[field].y !== 0)) {
+              // Apply Y offset for server-side vertical alignment
+              cleanedCell[field].y = Math.max(0, cleanedCell[field].y - Y_OFFSET);
+            } else if (field !== 'id' && cleanedCell[field] && cleanedCell[field].x === 0 && cleanedCell[field].y === 0) {
+              delete cleanedCell[field];
+            }
+          });
+          return cleanedCell;
+        });
+      }
+      
+      if (cleaned.extra_fields) {
+        Object.keys(cleaned.extra_fields).forEach(field => {
+          if (cleaned.extra_fields[field].x !== 0 || cleaned.extra_fields[field].y !== 0) {
+            // Apply Y offset for extra fields as well
+            cleaned.extra_fields[field].y = Math.max(0, cleaned.extra_fields[field].y - Y_OFFSET);
+          } else {
+            delete cleaned.extra_fields[field];
+          }
+        });
+        // Remove extra_fields if it's now empty
+        if (Object.keys(cleaned.extra_fields).length === 0) {
+          delete cleaned.extra_fields;
+        }
+      }
+      
+      return cleaned;
+    };
+
     try {
       let config;
       try {
-        config = JSON.parse(mappingConfig)
+        config = cleanConfig(JSON.parse(mappingConfig));
       } catch (e) {
         throw new Error('Invalid JSON in Mapping Config')
       }
@@ -1259,6 +1528,7 @@ const ThemeBuilderView = ({ addLog }) => {
         .from('themes')
         .update({
           mapping_config: config,
+          status: 'verified', // Mark as verified upon saving
           updated_at: new Date().toISOString()
         })
         .eq('url', imageUrl)
@@ -1460,14 +1730,20 @@ const ThemeBuilderView = ({ addLog }) => {
                 className={`mode-toggle-btn ${previewMode === 'image' ? 'active' : ''}`}
                 onClick={() => setPreviewMode('image')}
               >
-                <ImageIcon size={14} /> Background
+                <ImageIcon size={14} /> Background / Picker
+              </button>
+              <button 
+                className={`mode-toggle-btn ${previewMode === 'client' ? 'active' : ''}`}
+                onClick={() => setPreviewMode('client')}
+              >
+                <Eye size={14} /> Client Preview
               </button>
               <button 
                 className={`mode-toggle-btn ${previewMode === 'result' ? 'active' : ''}`}
                 onClick={() => setPreviewMode('result')}
                 disabled={!previewImage}
               >
-                <Play size={14} /> Result
+                <Play size={14} /> Server Result
               </button>
             </div>
           </div>
@@ -1496,6 +1772,16 @@ const ThemeBuilderView = ({ addLog }) => {
                 >
                   <Circle size={16} /> Circle
                 </button>
+                
+                <div className="toolbar-divider" />
+                
+                <button 
+                  className={`toolbar-btn overlay-toggle ${showLiveOverlay ? 'active' : ''}`}
+                  onClick={() => setShowLiveOverlay(!showLiveOverlay)}
+                  title="Toggle Instant Visibility"
+                >
+                  <Eye size={16} /> {showLiveOverlay ? 'Overlay: ON' : 'Overlay: OFF'}
+                </button>
               </div>
 
               {clickedCoord && (
@@ -1515,36 +1801,113 @@ const ThemeBuilderView = ({ addLog }) => {
 
                   <div className="coord-implement-section">
                     <div className="selector-group">
-                      <select 
-                        value={selectedCellIdx} 
-                        onChange={(e) => setSelectedCellIdx(parseInt(e.target.value))}
-                        className="coord-selector"
-                      >
-                        {(() => {
-                          try {
-                            const config = JSON.parse(mappingConfig);
-                            const cells = config.cells || [];
-                            return cells.map((_, idx) => (
-                              <option key={idx} value={idx}>Row {idx + 1}</option>
-                            ));
-                          } catch (e) {
-                            return <option value={0}>Row 1</option>;
-                          }
-                        })()}
-                      </select>
+                      {selectedField !== 'tournament_name' && (
+                        <select 
+                          value={selectedCellIdx} 
+                          onChange={(e) => {
+                            const newIdx = parseInt(e.target.value);
+                            setSelectedCellIdx(newIdx);
+                            // Auto-load current settings for this field
+                            try {
+                              const config = JSON.parse(mappingConfig);
+                              const cell = config.cells?.[newIdx];
+                              const fieldData = cell?.[selectedField];
+                              if (fieldData) {
+                                if (fieldData.font_size) setTempFontSize(fieldData.font_size);
+                                if (fieldData.alignment) setTempAlignment(fieldData.alignment);
+                                if (fieldData.color_rgb) {
+                                  const hex = '#' + fieldData.color_rgb.map(x => x.toString(16).padStart(2, '0')).join('');
+                                  setTempColor(hex);
+                                }
+                              }
+                            } catch (e) {}
+                          }}
+                          className="coord-selector"
+                          title="Select Row"
+                        >
+                          {(() => {
+                            try {
+                              const config = JSON.parse(mappingConfig);
+                              const cells = config.cells || [];
+                              return cells.map((_, idx) => (
+                                <option key={idx} value={idx}>Row {idx + 1}</option>
+                              ));
+                            } catch (e) {
+                              return <option value={0}>Row 1</option>;
+                            }
+                          })()}
+                        </select>
+                      )}
                       <select 
                         value={selectedField} 
-                        onChange={(e) => setSelectedField(e.target.value)}
+                        onChange={(e) => {
+                          const newField = e.target.value;
+                          setSelectedField(newField);
+                          // Auto-load current settings for this field
+                          try {
+                            const config = JSON.parse(mappingConfig);
+                            let fieldData;
+                            if (newField === 'tournament_name') {
+                              fieldData = config.extra_fields?.tournament_name;
+                            } else {
+                              fieldData = config.cells?.[selectedCellIdx]?.[newField];
+                            }
+                            
+                            if (fieldData) {
+                              if (fieldData.font_size) setTempFontSize(fieldData.font_size);
+                              if (fieldData.font_path) setTempFontPath(fieldData.font_path);
+                              if (fieldData.color_rgb) {
+                                const hex = '#' + fieldData.color_rgb.map(x => x.toString(16).padStart(2, '0')).join('');
+                                setTempColor(hex);
+                              }
+                            }
+                          } catch (e) {}
+                        }}
                         className="coord-selector"
+                        title="Select Field"
                       >
                         {CONFIG_FIELDS.map(field => (
                           <option key={field} value={field}>{field.toUpperCase()}</option>
                         ))}
                       </select>
-                    </div>
-                    <button className="implement-btn" onClick={handleUpdateMappingConfig}>
-                      <Save size={14} /> Update Config
-                    </button>
+                      <select 
+                        value={tempFontPath} 
+                        onChange={(e) => setTempFontPath(e.target.value)}
+                        className="coord-selector"
+                        title="Select Font"
+                      >
+                        {FONT_OPTIONS.map(font => (
+                          <option key={font} value={font}>{font.split('-')[0]}</option>
+                        ))}
+                      </select>
+                      <input 
+                          type="number" 
+                          value={tempFontSize} 
+                          onChange={(e) => setTempFontSize(parseInt(e.target.value))}
+                          className="coord-selector font-size-input"
+                          style={{ width: '70px' }}
+                          title="Font Size for this field (px)"
+                        />
+                        <div className="color-picker-container" title="Pick Color">
+                          <div 
+                            className="color-preview" 
+                            style={{ backgroundColor: tempColor }}
+                            onClick={() => document.getElementById('hidden-color-picker').click()}
+                          >
+                            <Palette size={14} style={{ color: tempColor === '#ffffff' ? '#000' : '#fff' }} />
+                          </div>
+                          <input 
+                            id="hidden-color-picker"
+                            type="color" 
+                            value={tempColor} 
+                            onChange={(e) => setTempColor(e.target.value)}
+                            className="hidden-color-input"
+                          />
+                        </div>
+                      </div>
+                      <button className="implement-btn" onClick={handleUpdateMappingConfig}>
+                        <Save size={14} /> Update Config
+                      </button>
                   </div>
 
                   <div className="coord-actions">
@@ -1593,6 +1956,22 @@ const ThemeBuilderView = ({ addLog }) => {
                   }}
                 />
                 
+                {/* Client-Side Preview Overlay (Integrated & Separate) */}
+                {((previewMode === 'image' && showLiveOverlay) || previewMode === 'client') && (
+                    <ClientPreviewOverlay 
+                    config={(() => {
+                      try {
+                        return JSON.parse(mappingConfig);
+                      } catch (e) {
+                        return null;
+                      }
+                    })()} 
+                    imageRef={imageRef}
+                    imageUrl={imageUrl}
+                    selectedCellIdx={selectedCellIdx}
+                  />
+                )}
+                
                 {/* Drawing Overlay */}
                 {previewMode === 'image' && isDrawing && startPos && currentPos && (
                   <div 
@@ -1612,21 +1991,45 @@ const ThemeBuilderView = ({ addLog }) => {
                 )}
                 
                 {/* Persistent Selection Highlight */}
-                {previewMode === 'image' && !isDrawing && clickedCoord && clickedCoord.type && clickedCoord.type !== 'point' && imageRef.current && (
-                  <div 
-                    className={`selection-highlight ${clickedCoord.type}`}
-                    style={{
-                      position: 'absolute',
-                      left: (clickedCoord.x / imageRef.current.naturalWidth) * imageRef.current.clientWidth,
-                      top: (clickedCoord.y / imageRef.current.naturalHeight) * imageRef.current.clientHeight,
-                      width: (clickedCoord.width / imageRef.current.naturalWidth) * imageRef.current.clientWidth,
-                      height: (clickedCoord.height / imageRef.current.naturalHeight) * imageRef.current.clientHeight,
-                      pointerEvents: 'none',
-                      border: '2px dashed var(--primary)',
-                      background: 'rgba(99, 102, 241, 0.1)',
-                      borderRadius: clickedCoord.type === 'circle' ? '50%' : '4px'
-                    }}
-                  />
+                {previewMode === 'image' && !isDrawing && clickedCoord && imageRef.current && (
+                  clickedCoord.type === 'point' ? (
+                    <div 
+                      className="selection-highlight point"
+                      style={{
+                        position: 'absolute',
+                        left: (clickedCoord.x / imageRef.current.naturalWidth) * imageRef.current.clientWidth,
+                        top: (clickedCoord.y / imageRef.current.naturalHeight) * imageRef.current.clientHeight,
+                        width: '12px',
+                        height: '12px',
+                        transform: 'translate(-50%, -50%)',
+                        pointerEvents: 'none',
+                        border: '2px solid #ffeb3b',
+                        borderRadius: '50%',
+                        background: 'rgba(255, 235, 59, 0.5)',
+                        boxShadow: '0 0 10px rgba(0,0,0,0.5)',
+                        zIndex: 20
+                      }}
+                    >
+                      {/* Crosshair lines for the point */}
+                      <div style={{ position: 'absolute', top: '50%', left: '-5px', width: '22px', height: '1px', background: '#ffeb3b', transform: 'translateY(-50%)' }} />
+                      <div style={{ position: 'absolute', left: '50%', top: '-5px', width: '1px', height: '22px', background: '#ffeb3b', transform: 'translateX(-50%)' }} />
+                    </div>
+                  ) : (
+                    <div 
+                      className={`selection-highlight ${clickedCoord.type}`}
+                      style={{
+                        position: 'absolute',
+                        left: (clickedCoord.x / imageRef.current.naturalWidth) * imageRef.current.clientWidth,
+                        top: (clickedCoord.y / imageRef.current.naturalHeight) * imageRef.current.clientHeight,
+                        width: (clickedCoord.width / imageRef.current.naturalWidth) * imageRef.current.clientWidth,
+                        height: (clickedCoord.height / imageRef.current.naturalHeight) * imageRef.current.clientHeight,
+                        pointerEvents: 'none',
+                        border: '2px dashed var(--primary)',
+                        background: 'rgba(99, 102, 241, 0.1)',
+                        borderRadius: clickedCoord.type === 'circle' ? '50%' : '4px'
+                      }}
+                    />
+                  )
                 )}
               </div>
             ) : (
