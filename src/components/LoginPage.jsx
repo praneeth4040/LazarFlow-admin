@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Eye, EyeOff } from 'lucide-react'
+import logoImg from '../assets/logo.jpeg'
 import './LoginPage.css'
 
 const LoginPage = ({ onLogin }) => {
@@ -61,6 +62,7 @@ const LoginPage = ({ onLogin }) => {
     <div className="login-container">
       <div className="login-card">
         <div className="login-header">
+          <img src={logoImg} alt="LazarFlow" className="login-logo" />
           <h1>LazarFlow Admin</h1>
           <p>Sign in to access the admin dashboard</p>
         </div>
