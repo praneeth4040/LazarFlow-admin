@@ -12,6 +12,9 @@ import { GlobalTournamentListView, TournamentTeamsView } from './views/Tournamen
 import NotificationsView from './views/NotificationsView'
 import ThemeBuilderView from './theme-builder/ThemeBuilderView'
 
+// Assets
+import logoImg from '../assets/logo.jpeg'
+
 // Styles
 import './Dashboard.css'
 
@@ -212,7 +215,7 @@ const Dashboard = ({ user, onLogout }) => {
       <header className="dashboard-header">
         <div className="header-content">
           <div className="logo-section">
-            <LayoutDashboard className="logo-icon" size={24} />
+            <img src={logoImg} alt="LazarFlow" className="header-logo" />
             <h1>LazarFlow Admin</h1>
           </div>
           <div className="header-actions">

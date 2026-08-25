@@ -4,7 +4,7 @@ import {
   Palette, Image as ImageIcon, Save, Play, Square, Circle,
   MousePointer2, FileJson, LayoutGrid, PlusSquare, MinusSquare,
   Braces, List, Eye, RefreshCcw, ChevronLeft, CheckCircle2, XCircle,
-  Info, Users, Trophy,
+  Info, Users, Trophy, Upload,
 } from 'lucide-react'
 import { FONT_OPTIONS, EMPTY_MAPPING_CONFIG, DUMMY_TEAMS } from '../../constants/themeConstants'
 import ClientPreviewOverlay from './ClientPreviewOverlay'
@@ -26,6 +26,14 @@ const ThemeBuilderView = ({ addLog }) => {
   const [pendingThemes, setPendingThemes] = useState([])
   const [showPendingDropdown, setShowPendingDropdown] = useState(false)
   const [fetchingPending, setFetchingPending] = useState(false)
+  
+  // Upload Theme States
+  const [showUploadPanel, setShowUploadPanel] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadThemeName, setUploadThemeName] = useState('')
+  const fileInputRef = useRef(null)
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [uploadPreviewUrl, setUploadPreviewUrl] = useState(null)
   
   // Update Config States
   const [selectedCellIdx, setSelectedCellIdx] = useState(0)
@@ -53,6 +61,9 @@ const ThemeBuilderView = ({ addLog }) => {
   const [rowYFirst, setRowYFirst] = useState(null)
   const [rowYLast, setRowYLast] = useState(null)
   const [rowYClickStep, setRowYClickStep] = useState('first') // 'first' | 'last'
+  // Row range: apply grid only to rows gridRowStart..gridRowEnd (1-indexed, both inclusive)
+  const [gridRowStart, setGridRowStart] = useState(1)
+  const [gridRowEnd, setGridRowEnd] = useState(12)
   const [gridFieldStyles, setGridFieldStyles] = useState({
     rank:  { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
     team:  { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'left' },
@@ -91,6 +102,43 @@ const ThemeBuilderView = ({ addLog }) => {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, []) // intentionally empty — handleUndo reads latest state via functional updater
+
+  // ── Upload Theme Handler ────────────────────────────────────────────────
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setSelectedFile(file)
+    const previewUrl = URL.createObjectURL(file)
+    setUploadPreviewUrl(previewUrl)
+    if (!uploadThemeName) {
+      const nameFromFile = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ')
+      setUploadThemeName(nameFromFile)
+    }
+    addLog('info', `Selected file: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`)
+  }
+
+  const handleLoadLocalTheme = () => {
+    if (!selectedFile) {
+      setStatus({ type: 'error', message: 'Please select an image file first' })
+      return
+    }
+    if (!uploadThemeName.trim()) {
+      setStatus({ type: 'error', message: 'Please enter a theme name' })
+      return
+    }
+
+    // Just load the local file into the builder — NO upload yet
+    const localUrl = URL.createObjectURL(selectedFile)
+    setThemeName(uploadThemeName.trim())
+    setImageUrl(localUrl)
+    setMappingConfig(JSON.stringify(EMPTY_MAPPING_CONFIG, null, 2))
+    setImageError(false)
+
+    // Close upload panel but keep the file reference for later upload on Verify & Save
+    setShowUploadPanel(false)
+    addLog('info', `Loaded local theme "${uploadThemeName}" into builder. Configure the mapping, then click "Verify & Save" to upload.`)
+    setStatus({ type: 'success', message: `Theme "${uploadThemeName}" loaded locally. Configure mapping, then click "Verify & Save" to upload to database.` })
+  }
 
   const fetchPendingThemes = async () => {
     // Toggle the dropdown
@@ -339,17 +387,48 @@ const ThemeBuilderView = ({ addLog }) => {
       return
     }
     if (rowYFirst === null || rowYLast === null) {
-      setStatus({ type: 'error', message: 'Set both Row 1 and Row 12 Y positions first.' })
+      setStatus({ type: 'error', message: `Set both Row ${gridRowStart} and Row ${gridRowEnd} Y positions first.` })
       return
     }
 
-    const NUM_ROWS = 12
-    const rowYValues = Array.from({ length: NUM_ROWS }, (_, i) =>
-      Math.round(rowYFirst + (rowYLast - rowYFirst) * (i / (NUM_ROWS - 1)))
+    // Validate range
+    const startIdx = gridRowStart - 1  // 0-indexed
+    const endIdx   = gridRowEnd - 1    // 0-indexed
+    const rangeLen = endIdx - startIdx + 1
+
+    if (rangeLen < 2) {
+      setStatus({ type: 'error', message: 'Row range must span at least 2 rows.' })
+      return
+    }
+
+    // Y values evenly spaced only across the selected range
+    const rowYValues = Array.from({ length: rangeLen }, (_, i) =>
+      Math.round(rowYFirst + (rowYLast - rowYFirst) * (i / (rangeLen - 1)))
     )
 
-    const cells = rowYValues.map(y => {
-      const cell = {}
+    // Parse existing config to preserve cells outside the range
+    let baseConfig
+    try {
+      baseConfig = JSON.parse(mappingConfig)
+    } catch (_) {
+      baseConfig = {}
+    }
+
+    // Ensure we have exactly 12 cells (preserve existing or create empty)
+    const NUM_ROWS = 12
+    const existingCells = baseConfig.cells && baseConfig.cells.length === NUM_ROWS
+      ? baseConfig.cells
+      : Array(NUM_ROWS).fill(null).map(() => ({}))
+
+    // Merge: only overwrite cells in the chosen range
+    const mergedCells = existingCells.map((existingCell, i) => {
+      if (i < startIdx || i > endIdx) {
+        // Outside range — keep exactly as-is
+        return existingCell
+      }
+      // Inside range — fill with evenly-spaced grid values
+      const y = rowYValues[i - startIdx]
+      const cell = { ...existingCell }
       GRID_FIELDS.forEach(field => {
         const s = gridFieldStyles[field]
         cell[field] = {
@@ -364,14 +443,15 @@ const ThemeBuilderView = ({ addLog }) => {
       return cell
     })
 
-    const generated = {
-      cells,
-      scoreboard: {
+    const merged = {
+      ...baseConfig,
+      cells: mergedCells,
+      scoreboard: baseConfig.scoreboard || {
         color_rgb: [255, 255, 255],
         font_path: 'Anton-Regular.ttf',
         font_size: 130,
       },
-      extra_fields: {
+      extra_fields: baseConfig.extra_fields || {
         tournament_name: {
           x: 0, y: 0, alignment: 'center',
           font_size: 200, color_rgb: [255, 255, 255],
@@ -380,13 +460,16 @@ const ThemeBuilderView = ({ addLog }) => {
       }
     }
 
-    setMappingConfig(JSON.stringify(generated, null, 2))
-    addLog('success', `Grid config generated! ${NUM_ROWS} rows Ã— ${GRID_FIELDS.length} fields = ${NUM_ROWS * GRID_FIELDS.length} entries auto-filled.`)
-    setStatus({ type: 'success', message: 'âœ… Config generated! Review the JSON then click Verify & Save.' })
+    const filledCount = rangeLen * GRID_FIELDS.length
+    setMappingConfig(JSON.stringify(merged, null, 2))
+    addLog('success', `Grid applied to rows ${gridRowStart}–${gridRowEnd} (${rangeLen} rows × ${GRID_FIELDS.length} fields = ${filledCount} entries). Rows outside range preserved.`)
+    setStatus({ type: 'success', message: `✅ Grid applied to rows ${gridRowStart}–${gridRowEnd}. Rows outside range kept intact. Review JSON then click Verify & Save.` })
     // Exit grid mode
     setGridMode(false)
     setGridStep('columns')
     setGridActiveField('rank')
+    setGridRowStart(1)
+    setGridRowEnd(12)
   }
 
   const handleGeneratePreview = async () => {
@@ -518,25 +601,81 @@ const ThemeBuilderView = ({ addLog }) => {
         throw new Error('Invalid JSON in Mapping Config')
       }
 
-      // Update existing theme where URL matches
-      const { data, error } = await supabase
-        .from('themes')
-        .update({
-          mapping_config: config,
-          status: 'verified', // Mark as verified upon saving
-          updated_at: new Date().toISOString()
-        })
-        .eq('url', imageUrl)
-        .select()
+      // Check if this is a locally uploaded theme (blob URL) that needs uploading first
+      const isLocalFile = imageUrl.startsWith('blob:')
 
-      if (error) throw error
+      if (isLocalFile && selectedFile) {
+        // ── NEW THEME: Upload to storage, then insert into DB ──
+        addLog('info', 'Uploading local theme to storage...')
 
-      if (!data || data.length === 0) {
-        throw new Error('No theme found with this Image URL. Make sure the URL matches exactly.')
+        // 1. Upload file to Supabase Storage
+        const fileExt = selectedFile.name.split('.').pop()
+        const fileName = `${Date.now()}_${themeName.replace(/\s+/g, '_').toLowerCase()}.${fileExt}`
+        const storagePath = `optimized/${fileName}`
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('themes')
+          .upload(storagePath, selectedFile, {
+            contentType: selectedFile.type,
+            upsert: false
+          })
+
+        if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`)
+
+        // 2. Get the public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('themes')
+          .getPublicUrl(storagePath)
+
+        addLog('success', `Uploaded to storage: ${publicUrl}`)
+
+        // 3. Insert into themes table with user_id: null and verified config
+        const { data: themeData, error: dbError } = await supabase
+          .from('themes')
+          .insert({
+            name: themeName.trim(),
+            url: publicUrl,
+            user_id: null,
+            status: 'verified',
+            mapping_config: config,
+          })
+          .select()
+
+        if (dbError) throw new Error(`Database insert failed: ${dbError.message}`)
+
+        // 4. Update the builder to use the real URL now
+        setImageUrl(publicUrl)
+
+        // 5. Clean up local file references
+        setSelectedFile(null)
+        setUploadPreviewUrl(null)
+        setUploadThemeName('')
+        if (fileInputRef.current) fileInputRef.current.value = ''
+
+        setStatus({ type: 'success', message: `Theme "${themeName}" uploaded & saved with verified config!` })
+        addLog('success', `Theme "${themeName}" uploaded to storage & saved to DB (user_id: null, status: verified)`, themeData)
+
+      } else {
+        // ── EXISTING THEME: Update config by matching URL ──
+        const { data, error } = await supabase
+          .from('themes')
+          .update({
+            mapping_config: config,
+            status: 'verified',
+            updated_at: new Date().toISOString()
+          })
+          .eq('url', imageUrl)
+          .select()
+
+        if (error) throw error
+
+        if (!data || data.length === 0) {
+          throw new Error('No theme found with this Image URL. Make sure the URL matches exactly.')
+        }
+
+        setStatus({ type: 'success', message: 'Theme config updated successfully!' })
+        addLog('success', 'Theme updated in database', data)
       }
-
-      setStatus({ type: 'success', message: 'Theme config updated successfully!' })
-      addLog('success', 'Theme updated in database', data)
       
     } catch (err) {
       console.error('Update error:', err)
@@ -556,6 +695,15 @@ const ThemeBuilderView = ({ addLog }) => {
         </div>
         
         <div className="header-actions-group">          
+          <button
+            type="button"
+            className={`upload-theme-btn ${showUploadPanel ? 'active' : ''}`}
+            onClick={() => setShowUploadPanel(!showUploadPanel)}
+            title="Upload a theme image from your local machine"
+          >
+            <Upload size={16} />
+            Upload Theme
+          </button>
           <button
             type="button"
             className={`grid-mode-btn ${gridMode ? 'active' : ''}`}
@@ -667,6 +815,90 @@ const ThemeBuilderView = ({ addLog }) => {
         </div>
       </div>
 
+      {/* ── Upload Theme Panel ── */}
+      {showUploadPanel && (
+        <div className="upload-panel">
+          <div className="upload-panel-header">
+            <h3><Upload size={18} /> Upload Local Theme</h3>
+            <button className="upload-panel-close" onClick={() => setShowUploadPanel(false)}>
+              <XCircle size={18} />
+            </button>
+          </div>
+          <p className="upload-description">
+            Select a theme image from your local machine to load into the builder. Configure the mapping 
+            config with demo data, then click <code>Verify & Save</code> to upload to storage and save 
+            to the database with <code>user_id: null</code>.
+          </p>
+          
+          <div className="upload-form-row">
+            <div className="upload-name-group">
+              <label className="form-label">Theme Name</label>
+              <input
+                type="text"
+                className="builder-input"
+                placeholder="e.g. Neon Galaxy Theme"
+                value={uploadThemeName}
+                onChange={(e) => setUploadThemeName(e.target.value)}
+              />
+            </div>
+            <div className="upload-file-group">
+              <label className="form-label">Theme Image</label>
+              <div className="upload-dropzone" onClick={() => fileInputRef.current?.click()}>
+                {selectedFile ? (
+                  <div className="upload-file-info">
+                    <CheckCircle2 size={16} />
+                    <span>{selectedFile.name}</span>
+                    <span className="upload-file-size">({(selectedFile.size / 1024).toFixed(1)} KB)</span>
+                  </div>
+                ) : (
+                  <div className="upload-placeholder">
+                    <Upload size={20} />
+                    <span>Click to select image</span>
+                    <span className="upload-formats">PNG, JPG, WebP</span>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleFileSelect}
+                  style={{ display: 'none' }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {uploadPreviewUrl && (
+            <div className="upload-preview-container">
+              <img src={uploadPreviewUrl} alt="Upload preview" className="upload-preview-img" />
+            </div>
+          )}
+
+          <div className="upload-actions">
+            <button
+              className="upload-submit-btn"
+              onClick={handleLoadLocalTheme}
+              disabled={!selectedFile || !uploadThemeName.trim()}
+            >
+              <ImageIcon size={16} />
+              Load into Builder
+            </button>
+            <button
+              className="upload-cancel-btn"
+              onClick={() => {
+                setShowUploadPanel(false)
+                setSelectedFile(null)
+                setUploadPreviewUrl(null)
+                setUploadThemeName('')
+                if (fileInputRef.current) fileInputRef.current.value = ''
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="builder-container">
 
         {/* â”€â”€ Grid Mode Wizard â”€â”€ */}
@@ -729,51 +961,96 @@ const ThemeBuilderView = ({ addLog }) => {
 
                 {GRID_FIELDS.every(f => columnX[f] !== null) && (
                   <button className="grid-next-btn" onClick={() => { setGridStep('rows'); setRowYClickStep('first') }}>
-                    Next: Set Rows â†’
+                    Next: Set Rows →
                   </button>
                 )}
               </div>
             )}
 
-            {/* â”€â”€ Step 2: Rows â”€â”€ */}
+            {/* ── Step 2: Rows ── */}
             {gridStep === 'rows' && (
               <div className="grid-step-content">
+
+                {/* Row Range Selector */}
+                <div className="grid-range-selector">
+                  <span className="range-label">Apply grid to rows:</span>
+                  <div className="range-inputs">
+                    <label>From row</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={gridRowEnd - 1}
+                      value={gridRowStart}
+                      onChange={e => {
+                        const v = Math.max(1, Math.min(parseInt(e.target.value) || 1, gridRowEnd - 1))
+                        setGridRowStart(v)
+                        setRowYFirst(null)
+                        setRowYLast(null)
+                        setRowYClickStep('first')
+                      }}
+                      className="range-number-input"
+                    />
+                    <label>to row</label>
+                    <input
+                      type="number"
+                      min={gridRowStart + 1}
+                      max={12}
+                      value={gridRowEnd}
+                      onChange={e => {
+                        const v = Math.min(12, Math.max(parseInt(e.target.value) || 12, gridRowStart + 1))
+                        setGridRowEnd(v)
+                        setRowYFirst(null)
+                        setRowYLast(null)
+                        setRowYClickStep('first')
+                      }}
+                      className="range-number-input"
+                    />
+                    <span className="range-hint">
+                      {gridRowStart === 1 && gridRowEnd === 12
+                        ? '(all rows)'
+                        : `(${gridRowEnd - gridRowStart + 1} rows — rows outside range kept as-is)`}
+                    </span>
+                  </div>
+                </div>
+
                 <div className="grid-instruction">
-                  <span className="instruction-icon">ðŸ‘†</span>
+                  <span className="instruction-icon">👆</span>
                   <div>
                     <strong>Click on the image</strong> at the vertical center of
-                    <span className="highlight-field"> {rowYClickStep === 'first' ? 'ROW 1 (top team)' : 'ROW 12 (bottom team)'}</span>.
-                    Y for all rows between will be auto-spaced.
+                    <span className="highlight-field"> {rowYClickStep === 'first' ? `ROW ${gridRowStart} (first in range)` : `ROW ${gridRowEnd} (last in range)`}</span>.
+                    Y for all rows in between will be auto-spaced.
                   </div>
                 </div>
 
                 <div className="grid-row-status">
                   <div className={`row-status-item ${rowYFirst !== null ? 'done' : rowYClickStep === 'first' ? 'active' : ''}`}>
-                    <span className="row-label">Row 1 (top)</span>
-                    <span className="row-value">{rowYFirst !== null ? `Y = ${rowYFirst}` : 'click image â†—'}</span>
+                    <span className="row-label">Row {gridRowStart} {gridRowStart === 1 ? '(top)' : '(range start)'}</span>
+                    <span className="row-value">{rowYFirst !== null ? `Y = ${rowYFirst}` : 'click image ↗'}</span>
                   </div>
-                  <div className="row-spacer">â‹® 10 rows auto-spaced â‹®</div>
+                  <div className="row-spacer">
+                    ⋮ {gridRowEnd - gridRowStart - 1} rows auto-spaced ⋮
+                  </div>
                   <div className={`row-status-item ${rowYLast !== null ? 'done' : rowYClickStep === 'last' ? 'active' : ''}`}>
-                    <span className="row-label">Row 12 (bottom)</span>
-                    <span className="row-value">{rowYLast !== null ? `Y = ${rowYLast}` : 'click image â†—'}</span>
+                    <span className="row-label">Row {gridRowEnd} {gridRowEnd === 12 ? '(bottom)' : '(range end)'}</span>
+                    <span className="row-value">{rowYLast !== null ? `Y = ${rowYLast}` : 'click image ↗'}</span>
                   </div>
                 </div>
 
                 <div className="grid-nav-actions">
-                  <button className="grid-back-btn" onClick={() => setGridStep('columns')}>â† Back</button>
+                  <button className="grid-back-btn" onClick={() => setGridStep('columns')}>← Back</button>
                   {rowYFirst !== null && rowYLast !== null && (
-                    <button className="grid-next-btn" onClick={() => setGridStep('styles')}>Next: Styles â†’</button>
+                    <button className="grid-next-btn" onClick={() => setGridStep('styles')}>Next: Styles →</button>
                   )}
                 </div>
               </div>
             )}
 
-            {/* â”€â”€ Step 3: Styles & Generate â”€â”€ */}
+            {/* ── Step 3: Styles & Generate ── */}
             {gridStep === 'styles' && (
               <div className="grid-step-content">
                 <div className="grid-instruction">
-                  <span className="instruction-icon">ðŸŽ¨</span>
-                  <div><strong>Set font, size & color</strong> once per column â€” applies to all 12 rows automatically.</div>
+                  <span className="instruction-icon">🎨</span>
+                  <div><strong>Set font, size & color</strong> once per column — applies to rows {gridRowStart}–{gridRowEnd} ({gridRowEnd - gridRowStart + 1} rows) automatically.</div>
                 </div>
 
                 <div className="grid-styles-table">
@@ -934,22 +1211,31 @@ const ThemeBuilderView = ({ addLog }) => {
           )}
 
           <div className="builder-actions">
-            <button 
-              className="preview-btn" 
-              onClick={handleGeneratePreview}
-              disabled={loading}
-            >
-              {loading ? <RefreshCcw size={18} className="spin" /> : <Play size={18} />}
-              Generate Live Preview
-            </button>
-            <button 
-              className="save-btn" 
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? <RefreshCcw size={18} className="spin" /> : <Save size={18} />}
-              Verify & Save
-            </button>
+            {imageUrl.startsWith('blob:') && selectedFile && (
+              <div className="local-file-banner">
+                <Upload size={14} />
+                <span>Local file loaded — <strong>Verify &amp; Save</strong> will upload to storage &amp; save to DB</span>
+              </div>
+            )}
+            <div className="builder-action-btns">
+              <button 
+                className="preview-btn" 
+                onClick={handleGeneratePreview}
+                disabled={loading || imageUrl.startsWith('blob:')}
+                title={imageUrl.startsWith('blob:') ? 'Preview requires a hosted image URL — save first' : ''}
+              >
+                {loading ? <RefreshCcw size={18} className="spin" /> : <Play size={18} />}
+                Generate Live Preview
+              </button>
+              <button 
+                className={`save-btn ${imageUrl.startsWith('blob:') && selectedFile ? 'save-btn-upload' : ''}`}
+                onClick={handleSave}
+                disabled={saving}
+              >
+                {saving ? <RefreshCcw size={18} className="spin" /> : <Save size={18} />}
+                {imageUrl.startsWith('blob:') && selectedFile ? 'Upload & Save to DB' : 'Verify & Save'}
+              </button>
+            </div>
           </div>
         </div>
         )}
