@@ -1,1320 +1,1392 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import {
-  Palette, Image as ImageIcon, Save, Play, Square, Circle,
-  MousePointer2, FileJson, LayoutGrid, PlusSquare, MinusSquare,
-  Braces, List, Eye, RefreshCcw, ChevronLeft, CheckCircle2, XCircle,
-  Info, Users, Trophy,
+  Palette, CheckCircle2, Clock, AlertCircle,
+  Image as ImageIcon, Loader2, X, User, Calendar,
+  Link as LinkIcon, Hash, Layers, Eye, ChevronRight,
+  ExternalLink, Play, Trophy, SlidersHorizontal,
+  Download, RefreshCcw, ChevronDown, Pencil, Trash2,
+  Copy, CopyCheck, ShieldCheck, Save, Ban, GitMerge,
+  Globe, Lock, Users, ArrowUpRight, Crosshair, Plus, Upload,
 } from 'lucide-react'
-import { FONT_OPTIONS, EMPTY_MAPPING_CONFIG, DUMMY_TEAMS } from '../../constants/themeConstants'
-import ClientPreviewOverlay from './ClientPreviewOverlay'
-import GridGuideOverlay from './GridGuideOverlay'
-import NormalModeOverlay from './NormalModeOverlay'
-import JsonTreeNode from './JsonTreeNode'
-const ThemeBuilderView = ({ addLog }) => {
-  const [themeName, setThemeName] = useState('Default Theme')
-  const [imageUrl, setImageUrl] = useState('https://xsxwzwcfaflzynsyryzq.supabase.co/storage/v1/object/public/themes/optimized/design1_base.png?')
-  const [mappingConfig, setMappingConfig] = useState(JSON.stringify(EMPTY_MAPPING_CONFIG, null, 2))
-  const [previewImage, setPreviewImage] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [status, setStatus] = useState({ type: '', message: '' })
-  const [imageError, setImageError] = useState(false)
-  const [showJsonViewer, setShowJsonViewer] = useState(false)
-  const [previewMode, setPreviewMode] = useState('image') // 'image' for picker, 'result' for rendered preview
-  const [showLiveOverlay, setShowLiveOverlay] = useState(true)
-  const [pendingThemes, setPendingThemes] = useState([])
-  const [showPendingDropdown, setShowPendingDropdown] = useState(false)
-  const [fetchingPending, setFetchingPending] = useState(false)
-  
-  // Update Config States
-  const [selectedCellIdx, setSelectedCellIdx] = useState(0)
-  const [selectedField, setSelectedField] = useState('team')
-  const [tempFontSize, setTempFontSize] = useState(130)
-  const [tempFontPath, setTempFontPath] = useState('Anton-Regular.ttf')
-  const [tempColor, setTempColor] = useState('#ffffff')
-  const CONFIG_FIELDS = ['rank', 'team', 'w', 'pp', 'kp', 'total', 'tournament_name']
-  const FONT_OPTIONS = ['Anton-Regular.ttf', 'Roboto-Bold.ttf', 'Montserrat-Bold.ttf', 'BebasNeue-Regular.ttf']
-  
-  // Coordinate Picker States
-  const [clickedCoord, setClickedCoord] = useState(null)
-  const [selectionMode, setSelectionMode] = useState('point') // 'point', 'rect', 'circle'
-  const [isDrawing, setIsDrawing] = useState(false)
-  const [startPos, setStartPos] = useState(null)
-  const [currentPos, setCurrentPos] = useState(null)
-  const imageRef = useRef(null)
+import ThemeMappingEditor from './ThemeMappingEditor'
 
-  // Grid Mode States
-  const GRID_FIELDS = ['rank', 'team', 'w', 'pp', 'kp', 'total']
-  const [gridMode, setGridMode] = useState(false)
-  const [gridStep, setGridStep] = useState('columns') // 'columns' | 'rows' | 'styles'
-  const [gridActiveField, setGridActiveField] = useState('rank')
-  const [columnX, setColumnX] = useState({ rank: null, team: null, w: null, pp: null, kp: null, total: null })
-  const [rowYFirst, setRowYFirst] = useState(null)
-  const [rowYLast, setRowYLast] = useState(null)
-  const [rowYClickStep, setRowYClickStep] = useState('first') // 'first' | 'last'
-  const [gridFieldStyles, setGridFieldStyles] = useState({
-    rank:  { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
-    team:  { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'left' },
-    w:     { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
-    pp:    { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
-    kp:    { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
-    total: { font_size: 130, font_path: 'Anton-Regular.ttf', color_hex: '#ffffff', alignment: 'center' },
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const THEME_STATUS = { VERIFIED: 'verified', IN_PROGRESS: 'in_progress', PENDING: 'pending' }
+const DB_STATUSES  = ['pending', 'verified', 'rejected']
+
+// Theme ownership type — derived from user_id
+const THEME_TYPE = { COMMUNITY: 'community', CUSTOM: 'custom' }
+const getThemeType = (theme) => (!theme.user_id ? THEME_TYPE.COMMUNITY : THEME_TYPE.CUSTOM)
+
+const TYPE_META = {
+  [THEME_TYPE.COMMUNITY]: {
+    label: 'Community',
+    Icon: Globe,
+    accent: '#7c3aed',        // purple
+    bg: 'rgba(124,58,237,0.08)',
+    description: 'Available to all users',
+    chipClass: 'type-chip-community',
+  },
+  [THEME_TYPE.CUSTOM]: {
+    label: 'Custom',
+    Icon: Lock,
+    accent: '#0891b2',        // cyan
+    bg: 'rgba(8,145,178,0.08)',
+    description: 'Private — uploaded by a specific user',
+    chipClass: 'type-chip-custom',
+  },
+}
+
+const classifyTheme = (theme) => {
+  const hasCells =
+    theme.mapping_config &&
+    Array.isArray(theme.mapping_config.cells) &&
+    theme.mapping_config.cells.length > 0 &&
+    theme.mapping_config.cells.some(
+      (c) => Object.values(c).some((f) => f && (f.x || f.y || f.font_size))
+    )
+  if (theme.status === THEME_STATUS.VERIFIED && hasCells) return THEME_STATUS.VERIFIED
+  if (hasCells) return THEME_STATUS.IN_PROGRESS
+  return THEME_STATUS.PENDING
+}
+
+const STATUS_META = {
+  [THEME_STATUS.VERIFIED]: {
+    label: 'Verified', Icon: CheckCircle2,
+    accent: 'var(--google-green)', bg: 'rgba(52,168,83,0.08)',
+    description: 'Approved and ready to use in tournaments',
+  },
+  [THEME_STATUS.IN_PROGRESS]: {
+    label: 'Under Verification', Icon: Clock,
+    accent: 'var(--google-yellow-dark)', bg: 'rgba(251,188,5,0.10)',
+    description: 'Mapping in progress — configuration started but not finalized',
+  },
+  [THEME_STATUS.PENDING]: {
+    label: 'Pending', Icon: AlertCircle,
+    accent: 'var(--google-blue)', bg: 'rgba(26,115,232,0.08)',
+    description: 'New themes awaiting mapping configuration',
+  },
+}
+
+const formatDate = (iso, long = false) => {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleDateString(undefined, long
+      ? { year: 'numeric', month: 'long', day: 'numeric' }
+      : { year: 'numeric', month: 'short', day: 'numeric' })
+  } catch { return '—' }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Small helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AdjustmentSlider = ({ label, field, value, min, max, step, onChange }) => (
+  <div className="adj-row">
+    <span className="adj-label">{label}</span>
+    <input type="range" min={min} max={max} step={step} value={value}
+      onChange={(e) => onChange(field, parseFloat(e.target.value))} className="adj-slider" />
+    <span className="adj-value">{value.toFixed(1)}</span>
+    <button className="adj-reset" onClick={() => onChange(field, 1.0)}
+      title="Reset" disabled={value === 1.0}><RefreshCcw size={11} /></button>
+  </div>
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Confirm Delete Modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ConfirmDeleteModal = ({ count, names, onConfirm, onCancel, deleting }) => (
+  <div className="confirm-overlay" onClick={onCancel}>
+    <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+      <div className="confirm-icon-wrap danger">
+        <Trash2 size={22} />
+      </div>
+      <h3 className="confirm-title">
+        Delete {count === 1 ? 'Theme' : `${count} Themes`}?
+      </h3>
+      <p className="confirm-body">
+        {count === 1
+          ? <>You're about to permanently delete <strong>{names[0]}</strong>. This cannot be undone.</>
+          : <>You're about to permanently delete <strong>{count} themes</strong>. This cannot be undone.</>
+        }
+      </p>
+      {count > 1 && names.length > 0 && (
+        <ul className="confirm-list">
+          {names.slice(0, 6).map((n, i) => <li key={i}>{n}</li>)}
+          {names.length > 6 && <li>…and {names.length - 6} more</li>}
+        </ul>
+      )}
+      <div className="confirm-actions">
+        <button className="confirm-cancel-btn" onClick={onCancel} disabled={deleting}>Cancel</button>
+        <button className="confirm-delete-btn" onClick={onConfirm} disabled={deleting}>
+          {deleting ? <><Loader2 size={14} className="spin" /> Deleting…</> : <><Trash2 size={14} /> Delete</>}
+        </button>
+      </div>
+    </div>
+  </div>
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Duplicates Panel (modal-style overlay)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DuplicatesPanel = ({ themes, onClose, onDeleted }) => {
+  // Group by normalised URL
+  const groups = themes.reduce((acc, t) => {
+    const key = (t.url || '').trim().toLowerCase()
+    if (!key) return acc
+    if (!acc[key]) acc[key] = []
+    acc[key].push(t)
+    return acc
+  }, {})
+
+  // Only groups that actually have > 1 entry
+  const dupGroups = Object.values(groups).filter((g) => g.length > 1)
+    .sort((a, b) => b.length - a.length)
+
+  // Selected IDs to delete (user picks which ones to keep/remove)
+  const [selected, setSelected] = useState(() => {
+    // Pre-select all but the OLDEST (first created_at) in each group
+    const pre = new Set()
+    dupGroups.forEach((group) => {
+      const sorted = [...group].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+      sorted.slice(1).forEach((t) => pre.add(t.id)) // keep oldest, mark rest
+    })
+    return pre
   })
 
-  // ── Undo History for Normal Mode ─────────────────────────────────────────
-  const [configHistory, setConfigHistory] = useState([])
+  const [confirm, setConfirm]   = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError]       = useState('')
 
-  const pushHistory = (snapshot) => {
-    setConfigHistory(prev => [...prev.slice(-29), snapshot]) // keep last 30 states
-  }
+  const toggle = (id) => setSelected((prev) => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
 
-  const handleUndo = () => {
-    setConfigHistory(prev => {
-      if (prev.length === 0) return prev
-      const last = prev[prev.length - 1]
-      setMappingConfig(last)
-      addLog('info', `↩ Undo: restored previous config (${prev.length - 1} step${prev.length - 1 !== 1 ? 's' : ''} remaining)`)
-      return prev.slice(0, -1)
-    })
-  }
-
-  // Ctrl+Z shortcut — only fires when NOT focused on a text input/textarea
-  useEffect(() => {
-    const onKey = (e) => {
-      const tag = document.activeElement?.tagName
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && tag !== 'INPUT' && tag !== 'TEXTAREA') {
-        e.preventDefault()
-        handleUndo()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, []) // intentionally empty — handleUndo reads latest state via functional updater
-
-  const fetchPendingThemes = async () => {
-    // Toggle the dropdown
-    const willOpen = !showPendingDropdown;
-    setShowPendingDropdown(willOpen);
-    
-    if (willOpen) {
-      setFetchingPending(true)
-      try {
-        // Fetch themes to find those without config or empty config
-        const { data, error } = await supabase
-          .from('themes')
-          .select('*')
-          .order('created_at', { ascending: false })
-
-        if (error) throw error
-        
-        // Filter themes that are truly "pending" (null config, or config missing cells)
-        const pending = (data || []).filter(t => {
-          if (!t.mapping_config) return true;
-          const config = t.mapping_config;
-          return !config.cells || config.cells.length === 0;
-        })
-        
-        setPendingThemes(pending)
-        addLog('info', `Fetched ${pending.length} pending themes out of ${data?.length || 0} total`)
-      } catch (err) {
-        console.error('Error fetching themes:', err)
-        addLog('error', 'Failed to fetch themes', err.message)
-      } finally {
-        setFetchingPending(false)
-      }
+  const handleDelete = async () => {
+    setDeleting(true)
+    setError('')
+    try {
+      const ids = [...selected]
+      const { error: err } = await supabase.from('themes').delete().in('id', ids)
+      if (err) throw err
+      onDeleted(ids)
+      onClose()
+    } catch (e) {
+      setError(e.message)
+      setDeleting(false)
     }
   }
 
-  // Fetch themes on component mount
+  const selectedNames = themes
+    .filter((t) => selected.has(t.id))
+    .map((t) => t.name || t.id.slice(0, 8))
+
+  return (
+    <div className="dup-overlay" onClick={onClose}>
+      <div className="dup-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="dup-header">
+          <div className="dup-header-left">
+            <GitMerge size={18} />
+            <div>
+              <h2>Duplicate Themes</h2>
+              <p>{dupGroups.length} groups · {themes.filter(t => selected.has(t.id)).length} selected to delete</p>
+            </div>
+          </div>
+          <button className="drawer-close-btn" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {error && (
+          <div className="dup-error"><AlertCircle size={14} />{error}</div>
+        )}
+
+        <div className="dup-body">
+          {dupGroups.length === 0 ? (
+            <div className="dup-empty">
+              <CheckCircle2 size={32} />
+              <p>No duplicates found!</p>
+            </div>
+          ) : (
+            dupGroups.map((group) => {
+              // Sort oldest first — oldest = "keep" candidate
+              const sorted = [...group].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+              return (
+                <div key={sorted[0].url} className="dup-group">
+                  <div className="dup-group-url">
+                    <LinkIcon size={12} />
+                    <span title={sorted[0].url}>{sorted[0].url}</span>
+                    <span className="dup-count-badge">{sorted.length} copies</span>
+                  </div>
+                  <div className="dup-group-items">
+                    {sorted.map((t, idx) => {
+                      const isSelected = selected.has(t.id)
+                      const isOldest = idx === 0
+                      return (
+                        <label
+                          key={t.id}
+                          className={`dup-item ${isSelected ? 'marked' : ''} ${isOldest ? 'keep' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggle(t.id)}
+                            className="dup-checkbox"
+                          />
+                          <div className="dup-item-thumb">
+                            <img src={t.url} alt={t.name} onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                          </div>
+                          <div className="dup-item-info">
+                            <span className="dup-item-name">{t.name || `Theme #${t.id.slice(-6)}`}</span>
+                            <span className="dup-item-meta">
+                              Created {formatDate(t.created_at)} · <span className={`status-badge status-${t.status || 'pending'}`}>{t.status || 'pending'}</span>
+                            </span>
+                            <span className="dup-item-id mono">{t.id}</span>
+                          </div>
+                          {isOldest && !isSelected && (
+                            <span className="dup-keep-tag"><ShieldCheck size={11} /> Keep</span>
+                          )}
+                          {isSelected && (
+                            <span className="dup-delete-tag"><Trash2 size={11} /> Delete</span>
+                          )}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {dupGroups.length > 0 && (
+          <div className="dup-footer">
+            <span className="dup-footer-info">
+              {selected.size} theme{selected.size !== 1 ? 's' : ''} selected for deletion
+            </span>
+            <div className="dup-footer-actions">
+              <button className="dup-cancel-btn" onClick={onClose}>Cancel</button>
+              <button
+                className="dup-delete-btn"
+                onClick={() => setConfirm(true)}
+                disabled={selected.size === 0}
+              >
+                <Trash2 size={14} /> Delete Selected ({selected.size})
+              </button>
+            </div>
+          </div>
+        )}
+
+        {confirm && (
+          <ConfirmDeleteModal
+            count={selected.size}
+            names={selectedNames}
+            onConfirm={handleDelete}
+            onCancel={() => setConfirm(false)}
+            deleting={deleting}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Theme Detail Drawer
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ThemeDetailDrawer = ({ theme: initialTheme, onClose, onUpdated, onDeleted }) => {
+  const [theme, setTheme] = useState(initialTheme)
+
+  // ── Edit state ──
+  const [editMode, setEditMode]     = useState(false)
+  const [editName, setEditName]     = useState(theme.name || '')
+  const [editStatus, setEditStatus] = useState(theme.status || 'pending')
+  const [editUrl, setEditUrl]       = useState(theme.url || '')
+  const [editType, setEditType]     = useState(() => getThemeType(theme)) // 'community' | 'custom'
+  const [saving, setSaving]         = useState(false)
+  const [saveError, setSaveError]   = useState('')
+  const [saveOk, setSaveOk]         = useState(false)
+
+  // ── Delete state ──
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting]           = useState(false)
+
+  // ── Mapping editor ──
+  const [mappingOpen, setMappingOpen] = useState(false)
+
+  // ── Owner ──
+  const [owner, setOwner]               = useState(null)
+  const [loadingOwner, setLoadingOwner] = useState(false)
+
+  // ── Render ──
+  const [lobbies, setLobbies]                   = useState([])
+  const [loadingLobbies, setLoadingLobbies]     = useState(false)
+  const [lobbyOpen, setLobbyOpen]               = useState(false)
+  const [selectedLobby, setSelectedLobby]       = useState(null)
+  const [extraData, setExtraData]               = useState({})
+  const [showAdj, setShowAdj]                   = useState(false)
+  const [adjustments, setAdjustments]           = useState({ contrast: 1.0, saturation: 1.0, brightness: 1.0, sharpness: 1.0 })
+  const setAdj = (field, value) => setAdjustments(prev => ({ ...prev, [field]: value }))
+  const [rendering, setRendering]               = useState(false)
+  const [renderError, setRenderError]           = useState('')
+  const [renderedUrl, setRenderedUrl]           = useState(null)
+  const lobbyRef = useRef(null)
+
+  // ── Derived ──
+  const computed    = classifyTheme(theme)
+  const meta        = STATUS_META[computed]
+  const StatusIcon  = meta.Icon
+  const themeType   = getThemeType(theme)
+  const typeMeta    = TYPE_META[themeType]
+  const TypeIcon    = typeMeta.Icon
+  const hasMapping  = theme.mapping_config?.cells?.some(
+    (c) => Object.values(c).some((f) => f && (f.x || f.y))
+  ) ?? false
+  const extraFieldKeys = Object.keys(theme.mapping_config?.extra_fields ?? {})
+  const adjChanged     = Object.values(adjustments).some((v) => v !== 1.0)
+
+  // ── Effects ──
+
   useEffect(() => {
-    fetchPendingThemes()
+    if (!theme.user_id) return
+    setLoadingOwner(true)
+    supabase.from('profiles')
+      .select('id, username, display_name, is_admin, created_at')
+      .eq('id', theme.user_id).single()
+      .then(({ data, error }) => { if (!error && data) setOwner(data) })
+      .finally(() => setLoadingOwner(false))
+  }, [theme.user_id])
+
+  useEffect(() => {
+    if (!hasMapping) return
+    setLoadingLobbies(true)
+    supabase.from('lobbies').select('id, name, game, status, created_at')
+      .order('created_at', { ascending: false }).limit(50)
+      .then(({ data }) => setLobbies(data || []))
+      .finally(() => setLoadingLobbies(false))
+  }, [hasMapping])
+
+  useEffect(() => {
+    // Sync extra data keys whenever theme changes
+    // lazarflow-watermark is always fixed to "lazarflow.app" — not user-editable
+    setExtraData(Object.fromEntries(
+      extraFieldKeys.map((k) => [k, k === 'lazarflow-watermark' ? 'lazarflow.app' : ''])
+    ))
+  }, [theme.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const fn = (e) => {
+      if (lobbyRef.current && !lobbyRef.current.contains(e.target)) setLobbyOpen(false)
+    }
+    document.addEventListener('mousedown', fn)
+    return () => document.removeEventListener('mousedown', fn)
   }, [])
 
-  const handleSelectPendingTheme = (theme) => {
-     setImageUrl(theme.url)
-     setThemeName(theme.name || 'Default Theme')
-     
-     // Use existing config if it has cells, otherwise use empty template
-     if (theme.mapping_config && theme.mapping_config.cells && theme.mapping_config.cells.length > 0) {
-       setMappingConfig(JSON.stringify(theme.mapping_config, null, 2))
-       addLog('info', `Loaded existing config for: ${theme.name || theme.url}`)
-     } else {
-       setMappingConfig(JSON.stringify(EMPTY_MAPPING_CONFIG, null, 2))
-       addLog('info', `Loaded empty template for: ${theme.name || theme.url}`)
-     }
-     
-     setShowPendingDropdown(false)
-     setImageError(false)
-   }
+  useEffect(() => {
+    const fn = (e) => { if (e.key === 'Escape' && !confirmDelete) onClose() }
+    window.addEventListener('keydown', fn)
+    return () => window.removeEventListener('keydown', fn)
+  }, [onClose, confirmDelete])
 
-  const handleUpdateMappingConfig = () => {
-    if (!clickedCoord) return
-    // Snapshot current state before applying change (enables undo)
-    pushHistory(mappingConfig)
-    
-    try {
-      const config = JSON.parse(mappingConfig)
-      if (!config.cells || !config.cells[selectedCellIdx]) {
-        throw new Error(`Cell ${selectedCellIdx + 1} not found in config`)
-      }
+  useEffect(() => () => { if (renderedUrl) URL.revokeObjectURL(renderedUrl) }, [renderedUrl])
 
-      const newX = clickedCoord.type && clickedCoord.type !== 'point' ? clickedCoord.centerX : clickedCoord.x
-      const newY = clickedCoord.type && clickedCoord.type !== 'point' ? clickedCoord.centerY : clickedCoord.y
-      
-      const updatedConfig = { ...config }
-      
-      // Convert hex to [R, G, B]
-      const hexToRgb = (hex) => {
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? [
-          parseInt(result[1], 16),
-          parseInt(result[2], 16),
-          parseInt(result[3], 16)
-        ] : [255, 255, 255];
-      };
-      const rgb = hexToRgb(tempColor);
-
-      if (selectedField === 'tournament_name') {
-        if (!updatedConfig.extra_fields) updatedConfig.extra_fields = {};
-        updatedConfig.extra_fields.tournament_name = {
-          ...updatedConfig.extra_fields.tournament_name,
-          x: newX,
-          y: newY,
-          alignment: "center", // Forced center for tournament name
-          font_size: tempFontSize,
-          color_rgb: rgb,
-          font_path: tempFontPath
-        };
-      } else {
-        if (!updatedConfig.cells || !updatedConfig.cells[selectedCellIdx]) {
-          throw new Error(`Cell ${selectedCellIdx + 1} not found in config`)
-        }
-        const currentCell = { ...updatedConfig.cells[selectedCellIdx] }
-        currentCell[selectedField] = {
-          ...currentCell[selectedField],
-          x: newX,
-          y: newY,
-          alignment: selectedField === 'team' ? "left" : "center", // Auto-alignment based on field
-          font_size: tempFontSize,
-          color_rgb: rgb,
-          font_path: tempFontPath
-        }
-        updatedConfig.cells[selectedCellIdx] = currentCell
-      }
-      
-      const finalAlign = selectedField === 'tournament_name' || selectedField !== 'team' ? "center" : "left";
-      
-      setMappingConfig(JSON.stringify(updatedConfig, null, 2))
-      addLog('success', `Updated ${selectedField === 'tournament_name' ? 'Extra' : 'Row ' + (selectedCellIdx + 1)} -> ${selectedField} to X:${newX}, Y:${newY}, Size:${tempFontSize}, Align:${finalAlign}`)
-    } catch (e) {
-      addLog('error', `Update failed: ${e.message}`)
-      setStatus({ type: 'error', message: `Update failed: ${e.message}` })
-    }
-  }
-
-  const handleFormatJson = () => {
-    try {
-      const obj = JSON.parse(mappingConfig)
-      setMappingConfig(JSON.stringify(obj, null, 2))
-      addLog('success', 'JSON formatted successfully')
-    } catch (e) {
-      addLog('error', 'Cannot format: Invalid JSON')
-      setStatus({ type: 'error', message: 'Cannot format: Invalid JSON in editor' })
-    }
-  }
-
-  const getRelativePos = (e) => {
-    if (!imageRef.current) return null
-    const rect = imageRef.current.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-    
-    // Scale to original image size
-    const scaleX = imageRef.current.naturalWidth / rect.width
-    const scaleY = imageRef.current.naturalHeight / rect.height
-    
-    return {
-      x: Math.round(x * scaleX),
-      y: Math.round(y * scaleY),
-      screenX: x,
-      screenY: y
-    }
-  }
-
-  const handleMouseDown = (e) => {
-    // â”€â”€ Grid Mode intercepts all clicks â”€â”€
-    if (gridMode && (gridStep === 'columns' || gridStep === 'rows')) {
-      const pos = getRelativePos(e)
-      if (!pos) return
-
-      if (gridStep === 'columns') {
-        setColumnX(prev => ({ ...prev, [gridActiveField]: pos.x }))
-        addLog('info', `Set ${gridActiveField.toUpperCase()} column X â†’ ${pos.x}`)
-        const currentIdx = GRID_FIELDS.indexOf(gridActiveField)
-        if (currentIdx < GRID_FIELDS.length - 1) {
-          setGridActiveField(GRID_FIELDS[currentIdx + 1])
-        } else {
-          // All columns done â†’ move to rows step
-          setGridStep('rows')
-          setRowYClickStep('first')
-          addLog('info', 'All columns set! Now click Row 1 on the image.')
-        }
-      } else if (gridStep === 'rows') {
-        if (rowYClickStep === 'first') {
-          setRowYFirst(pos.y)
-          setRowYClickStep('last')
-          addLog('info', `Set Row 1 Y â†’ ${pos.y}. Now click Row 12.`)
-        } else {
-          setRowYLast(pos.y)
-          addLog('info', `Set Row 12 Y â†’ ${pos.y}. Move to Styles & Generate!`)
-          setGridStep('styles')
-        }
-      }
-      return
-    }
-
-    // â”€â”€ Normal mode â”€â”€
-    if (selectionMode === 'point') {
-      const pos = getRelativePos(e)
-      if (pos) {
-        setClickedCoord({ x: pos.x, y: pos.y, type: 'point' })
-        addLog('info', `Picked coordinate: X:${pos.x}, Y:${pos.y}`)
-      }
-      return
-    }
-
-    const pos = getRelativePos(e)
-    if (pos) {
-      setIsDrawing(true)
-      setStartPos(pos)
-      setCurrentPos(pos)
-    }
-  }
-
-  const handleMouseMove = (e) => {
-    if (!isDrawing) return
-    const pos = getRelativePos(e)
-    if (pos) {
-      setCurrentPos(pos)
-    }
-  }
-
-  const handleMouseUp = () => {
-    if (!isDrawing) return
-    setIsDrawing(false)
-    
-    if (startPos && currentPos) {
-      const width = Math.abs(currentPos.x - startPos.x)
-      const height = Math.abs(currentPos.y - startPos.y)
-      const centerX = Math.round((startPos.x + currentPos.x) / 2)
-      const centerY = Math.round((startPos.y + currentPos.y) / 2)
-      
-      const selectionInfo = {
-        type: selectionMode,
-        x: Math.min(startPos.x, currentPos.x),
-        y: Math.min(startPos.y, currentPos.y),
-        width,
-        height,
-        centerX,
-        centerY
-      }
-      
-      setClickedCoord(selectionInfo)
-      addLog('info', `Area selected (${selectionMode}): X:${selectionInfo.x}, Y:${selectionInfo.y}, W:${width}, H:${height}, Center:${centerX},${centerY}`)
-    }
-  }
-
-  const hexToRgbArray = (hex) => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-    return result
-      ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)]
-      : [255, 255, 255]
-  }
-
-  const handleGenerateGridConfig = () => {
-    const missingX = GRID_FIELDS.filter(f => columnX[f] === null)
-    if (missingX.length > 0) {
-      setStatus({ type: 'error', message: `Missing column X for: ${missingX.join(', ')}` })
-      return
-    }
-    if (rowYFirst === null || rowYLast === null) {
-      setStatus({ type: 'error', message: 'Set both Row 1 and Row 12 Y positions first.' })
-      return
-    }
-
-    const NUM_ROWS = 12
-    const rowYValues = Array.from({ length: NUM_ROWS }, (_, i) =>
-      Math.round(rowYFirst + (rowYLast - rowYFirst) * (i / (NUM_ROWS - 1)))
-    )
-
-    const cells = rowYValues.map(y => {
-      const cell = {}
-      GRID_FIELDS.forEach(field => {
-        const s = gridFieldStyles[field]
-        cell[field] = {
-          x: columnX[field],
-          y,
-          alignment: s.alignment,
-          font_size: s.font_size,
-          font_path: s.font_path,
-          color_rgb: hexToRgbArray(s.color_hex),
-        }
-      })
-      return cell
-    })
-
-    const generated = {
-      cells,
-      scoreboard: {
-        color_rgb: [255, 255, 255],
-        font_path: 'Anton-Regular.ttf',
-        font_size: 130,
-      },
-      extra_fields: {
-        tournament_name: {
-          x: 0, y: 0, alignment: 'center',
-          font_size: 200, color_rgb: [255, 255, 255],
-          font_path: 'Anton-Regular.ttf'
-        }
-      }
-    }
-
-    setMappingConfig(JSON.stringify(generated, null, 2))
-    addLog('success', `Grid config generated! ${NUM_ROWS} rows Ã— ${GRID_FIELDS.length} fields = ${NUM_ROWS * GRID_FIELDS.length} entries auto-filled.`)
-    setStatus({ type: 'success', message: 'âœ… Config generated! Review the JSON then click Verify & Save.' })
-    // Exit grid mode
-    setGridMode(false)
-    setGridStep('columns')
-    setGridActiveField('rank')
-  }
-
-  const handleGeneratePreview = async () => {
-    if (!imageUrl || !mappingConfig) {
-      setStatus({ type: 'error', message: 'Image URL and Mapping Config are required' })
-      return
-    }
-
-    setLoading(true)
-    setStatus({ type: '', message: '' })
-    setPreviewImage(null)
-
-    try {
-      const configToRender = JSON.parse(mappingConfig);
-      
-      // Clean up the config: remove fields that have x:0 and y:0
-       if (configToRender.cells) {
-         configToRender.cells = configToRender.cells.map(cell => {
-           const cleanedCell = { ...cell };
-           Object.keys(cleanedCell).forEach(field => {
-             if (field !== 'id' && cleanedCell[field] && cleanedCell[field].x === 0 && cleanedCell[field].y === 0) {
-               delete cleanedCell[field];
-             }
-           });
-           return cleanedCell;
-         });
-       }
-       
-       if (configToRender.extra_fields) {
-         Object.keys(configToRender.extra_fields).forEach(field => {
-           if (configToRender.extra_fields[field].x === 0 && configToRender.extra_fields[field].y === 0) {
-             delete configToRender.extra_fields[field];
-           }
-         });
-       }
-
-      const payload = {
-        imageUrl: imageUrl,
-        mappingConfig: configToRender
-      }
-
-      console.log('--- GENERATING PREVIEW ---')
-      console.log('Payload:', payload)
-      addLog('request', 'POST /api/render/preview-render', payload)
-
-      const response = await fetch('http://localhost:10000/api/render/preview-render', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'image/png'
-        },
-        body: JSON.stringify(payload),
-      })
-
-      console.log('Response Status:', response.status)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Preview error details:', errorText)
-        throw new Error(`Server Error (${response.status}): ${errorText}`)
-      }
-
-      const blob = await response.blob()
-      console.log('Blob size:', blob.size)
-      const objectUrl = URL.createObjectURL(blob)
-      setPreviewImage(objectUrl)
-      setPreviewMode('result') // Automatically switch to result view
-      addLog('success', 'Preview generated successfully')
-    } catch (err) {
-      console.error('Full catch error:', err)
-      setStatus({ type: 'error', message: err.message })
-      addLog('error', 'Preview failed', err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
+  // ── Handlers ──
 
   const handleSave = async () => {
-    if (!imageUrl || !mappingConfig) {
-      setStatus({ type: 'error', message: 'Image URL and Mapping Config are required to update' })
-      return
-    }
-
-    setSaving(true)
-    setStatus({ type: '', message: '' })
-
-    const cleanConfig = (configObj) => {
-      const cleaned = JSON.parse(JSON.stringify(configObj)); // Deep clone
-      const Y_OFFSET = 25; // Adjusting 25px up for server alignment
-      
-      if (cleaned.cells) {
-        cleaned.cells = cleaned.cells.map(cell => {
-          const cleanedCell = { ...cell };
-          Object.keys(cleanedCell).forEach(field => {
-            if (field !== 'id' && cleanedCell[field] && (cleanedCell[field].x !== 0 || cleanedCell[field].y !== 0)) {
-              // Apply Y offset for server-side vertical alignment
-              cleanedCell[field].y = Math.max(0, cleanedCell[field].y - Y_OFFSET);
-            } else if (field !== 'id' && cleanedCell[field] && cleanedCell[field].x === 0 && cleanedCell[field].y === 0) {
-              delete cleanedCell[field];
-            }
-          });
-          return cleanedCell;
-        });
-      }
-      
-      if (cleaned.extra_fields) {
-        Object.keys(cleaned.extra_fields).forEach(field => {
-          if (cleaned.extra_fields[field].x !== 0 || cleaned.extra_fields[field].y !== 0) {
-            // Apply Y offset for extra fields as well
-            cleaned.extra_fields[field].y = Math.max(0, cleaned.extra_fields[field].y - Y_OFFSET);
-          } else {
-            delete cleaned.extra_fields[field];
-          }
-        });
-        // Remove extra_fields if it's now empty
-        if (Object.keys(cleaned.extra_fields).length === 0) {
-          delete cleaned.extra_fields;
-        }
-      }
-      
-      return cleaned;
-    };
-
+    setSaving(true); setSaveError(''); setSaveOk(false)
     try {
-      let config;
-      try {
-        config = cleanConfig(JSON.parse(mappingConfig));
-      } catch (e) {
-        throw new Error('Invalid JSON in Mapping Config')
+      const updates = {
+        name:       editName.trim() || theme.name,
+        status:     editStatus,
+        url:        editUrl.trim() || theme.url,
+        updated_at: new Date().toISOString(),
       }
-
-      // Update existing theme where URL matches
+      // Promote to community: clear user_id; demote keeps existing user_id (can't re-assign)
+      if (editType === THEME_TYPE.COMMUNITY && theme.user_id) {
+        updates.user_id = null
+      }
       const { data, error } = await supabase
-        .from('themes')
-        .update({
-          mapping_config: config,
-          status: 'verified', // Mark as verified upon saving
-          updated_at: new Date().toISOString()
-        })
-        .eq('url', imageUrl)
-        .select()
-
+        .from('themes').update(updates).eq('id', theme.id).select().single()
       if (error) throw error
+      setTheme(data)
+      onUpdated?.(data)
+      setEditMode(false)
+      setSaveOk(true)
+      setTimeout(() => setSaveOk(false), 3000)
+    } catch (e) {
+      setSaveError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
-      if (!data || data.length === 0) {
-        throw new Error('No theme found with this Image URL. Make sure the URL matches exactly.')
+  const handleCancelEdit = () => {
+    setEditName(theme.name || '')
+    setEditStatus(theme.status || 'pending')
+    setEditUrl(theme.url || '')
+    setEditType(getThemeType(theme))
+    setSaveError('')
+    setEditMode(false)
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      const { error } = await supabase.from('themes').delete().eq('id', theme.id)
+      if (error) throw error
+      onDeleted?.(theme.id)
+      onClose()
+    } catch (e) {
+      // surface error without crashing
+      console.error('Delete failed:', e.message)
+    } finally {
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
+  const countMappedCells  = () => (theme.mapping_config?.cells ?? []).filter(c => Object.values(c).some(f => f && (f.x || f.y))).length
+  const countMappedFields = () => { let n = 0; (theme.mapping_config?.cells ?? []).forEach(c => { n += Object.values(c).filter(f => f && (f.x || f.y)).length }); return n }
+
+  // ── Render ──
+  const handleRender = async () => {
+    if (!selectedLobby) return
+    setRendering(true); setRenderError(''); setRenderedUrl(null)
+    try {
+      const res = await fetch('/api/render/render-results', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          themeId:     theme.id,
+          lobbyId:     selectedLobby.id,
+          extraData,
+          adjustments,
+        }),
+      })
+      if (!res.ok) {
+        let msg = `Error ${res.status}`
+        try { const j = await res.json(); msg = j.error || j.message || msg } catch (_) {}
+        throw new Error(msg)
       }
+      const blob = await res.blob()
+      setRenderedUrl(URL.createObjectURL(blob))
+    } catch (e) {
+      setRenderError(e.message)
+    } finally {
+      setRendering(false)
+    }
+  }
 
-      setStatus({ type: 'success', message: 'Theme config updated successfully!' })
-      addLog('success', 'Theme updated in database', data)
-      
-    } catch (err) {
-      console.error('Update error:', err)
-      setStatus({ type: 'error', message: err.message })
-      addLog('error', 'Update failed', err.message)
+  const handleDownload = () => {
+    if (!renderedUrl) return
+    const a = document.createElement('a')
+    a.href     = renderedUrl
+    a.download = `${theme.name || theme.id}_${selectedLobby?.name || 'result'}.png`
+    a.click()
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <div className="theme-drawer-overlay" onClick={onClose}>
+      <div className="theme-drawer" onClick={(e) => e.stopPropagation()}
+        role="dialog" aria-modal="true" aria-label={`Theme: ${theme.name}`}>
+
+        {/* ── Header ── */}
+        <div className="theme-drawer-header">
+          <div className="theme-drawer-title-row">
+            <div className="theme-drawer-title">
+              <Palette size={18} style={{ color: meta.accent }} />
+              <h2>{theme.name || `Theme #${theme.id.slice(-6)}`}</h2>
+            </div>
+            <div className="drawer-header-actions">
+              {!editMode && (
+                <>
+                  <button
+                    className="drawer-action-btn map"
+                    onClick={() => setMappingOpen(true)}
+                    title="Open mapping editor"
+                  >
+                    <Crosshair size={14} /> Map
+                  </button>
+                  <button
+                    className="drawer-action-btn edit"
+                    onClick={() => {
+                      setEditMode(true)
+                      setEditName(theme.name || '')
+                      setEditStatus(theme.status || 'pending')
+                      setEditUrl(theme.url || '')
+                      setEditType(getThemeType(theme))
+                    }}
+                    title="Edit theme"
+                  >
+                    <Pencil size={14} /> Edit
+                  </button>
+                  <button
+                    className="drawer-action-btn delete"
+                    onClick={() => setConfirmDelete(true)}
+                    title="Delete theme"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </>
+              )}
+              <button className="drawer-close-btn" onClick={onClose}><X size={18} /></button>
+            </div>
+          </div>
+
+          <div className="theme-drawer-status-row">
+            <span className="theme-drawer-status-badge"
+              style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.accent}40` }}>
+              <StatusIcon size={13} /> {meta.label}
+            </span>
+            {/* Theme type badge */}
+            <span className="theme-type-badge" style={{ background: typeMeta.bg, color: typeMeta.accent, border: `1px solid ${typeMeta.accent}40` }}>
+              <TypeIcon size={12} /> {typeMeta.label}
+            </span>
+            <span className="theme-drawer-id"><Hash size={11} /> {theme.id.slice(0, 8)}…</span>
+            {saveOk && (
+              <span className="drawer-save-toast"><CheckCircle2 size={13} /> Saved</span>
+            )}
+          </div>
+        </div>
+
+        <div className="theme-drawer-body">
+
+          {/* ── EDIT PANEL ── */}
+          {editMode && (
+            <div className="theme-edit-panel">
+              <div className="edit-panel-title"><Pencil size={14} /> Edit Theme</div>
+
+              <div className="edit-field-group">
+                <label className="edit-label">Name</label>
+                <input
+                  className="edit-input"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Theme name"
+                />
+              </div>
+
+              <div className="edit-field-group">
+                <label className="edit-label">Verification Status</label>
+                <div className="edit-status-pills">
+                  {DB_STATUSES.map((s) => (
+                    <button
+                      key={s}
+                      className={`edit-status-pill ${editStatus === s ? 'active' : ''} status-pill-${s}`}
+                      onClick={() => setEditStatus(s)}
+                    >
+                      {s === 'verified'  && <CheckCircle2 size={13} />}
+                      {s === 'pending'   && <AlertCircle size={13} />}
+                      {s === 'rejected'  && <Ban size={13} />}
+                      {s.charAt(0).toUpperCase() + s.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="edit-field-group">
+                <label className="edit-label">Theme Type</label>
+                <div className="edit-type-toggle">
+                  <button
+                    type="button"
+                    className={`edit-type-btn ${editType === THEME_TYPE.COMMUNITY ? 'active community' : ''}`}
+                    onClick={() => setEditType(THEME_TYPE.COMMUNITY)}
+                  >
+                    <Globe size={14} /> Community
+                    <span className="edit-type-desc">Visible to all users</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`edit-type-btn ${editType === THEME_TYPE.CUSTOM ? 'active custom' : ''}`}
+                    onClick={() => setEditType(THEME_TYPE.CUSTOM)}
+                    disabled={themeType === THEME_TYPE.COMMUNITY}
+                  >
+                    <Lock size={14} /> Custom
+                    <span className="edit-type-desc">Private to uploader</span>
+                  </button>
+                </div>
+                {themeType === THEME_TYPE.COMMUNITY && editType === THEME_TYPE.CUSTOM && (
+                  <p className="edit-type-note warn">
+                    <AlertCircle size={12} /> Cannot convert a community theme back to custom — user_id cannot be restored.
+                  </p>
+                )}
+                {themeType === THEME_TYPE.CUSTOM && editType === THEME_TYPE.COMMUNITY && (
+                  <p className="edit-type-note promote">
+                    <ArrowUpRight size={12} /> Saving will clear the owner and make this theme available to everyone.
+                  </p>
+                )}
+              </div>
+
+              <div className="edit-field-group">
+                <label className="edit-label">Image URL</label>
+                <input
+                  className="edit-input mono-input"
+                  value={editUrl}
+                  onChange={(e) => setEditUrl(e.target.value)}
+                  placeholder="https://…"
+                />
+              </div>
+
+              {saveError && (
+                <div className="edit-error"><AlertCircle size={14} />{saveError}</div>
+              )}
+
+              <div className="edit-actions">
+                <button className="edit-cancel-btn" onClick={handleCancelEdit} disabled={saving}>
+                  <X size={14} /> Cancel
+                </button>
+                <button className="edit-save-btn" onClick={handleSave} disabled={saving}>
+                  {saving ? <><Loader2 size={14} className="spin" /> Saving…</> : <><Save size={14} /> Save Changes</>}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── RENDER PANEL ── */}
+          <div className="theme-drawer-render-panel">
+            <div className="render-panel-header">
+              <Play size={16} />
+              <span>Demo Render</span>
+              {!hasMapping && (
+                <span className="render-no-mapping-tag"><AlertCircle size={12} /> No mapping configured</span>
+              )}
+            </div>
+
+            {!hasMapping ? (
+              <div className="render-blocked">
+                <AlertCircle size={28} />
+                <p>This theme has no mapping configuration yet.<br />Configure it first before running a render.</p>
+              </div>
+            ) : (
+              <div className="render-controls">
+                {/* Lobby picker */}
+                <div className="render-field">
+                  <label className="render-field-label"><Trophy size={13} /> Select Lobby</label>
+                  <div className="lobby-picker" ref={lobbyRef}>
+                    <button
+                      className={`lobby-picker-trigger ${lobbyOpen ? 'open' : ''}`}
+                      onClick={() => setLobbyOpen((v) => !v)}
+                      disabled={loadingLobbies}
+                    >
+                      {loadingLobbies ? (
+                        <><Loader2 size={14} className="spin" /> Loading lobbies…</>
+                      ) : selectedLobby ? (
+                        <>
+                          <span className="lobby-pill-game">{selectedLobby.game}</span>
+                          <span className="lobby-pill-name">{selectedLobby.name}</span>
+                          <span className={`lobby-pill-status status-${selectedLobby.status}`}>{selectedLobby.status}</span>
+                        </>
+                      ) : (
+                        <span className="lobby-picker-placeholder">Choose a lobby to render against…</span>
+                      )}
+                      <ChevronDown size={14} className={`picker-chevron ${lobbyOpen ? 'flipped' : ''}`} />
+                    </button>
+                    {lobbyOpen && (
+                      <div className="lobby-dropdown">
+                        {lobbies.length === 0 ? (
+                          <div className="lobby-dropdown-empty">No lobbies found</div>
+                        ) : lobbies.map((lb) => (
+                          <button key={lb.id}
+                            className={`lobby-dropdown-item ${selectedLobby?.id === lb.id ? 'selected' : ''}`}
+                            onClick={() => { setSelectedLobby(lb); setLobbyOpen(false); setRenderedUrl(null); setRenderError('') }}>
+                            <span className="lobby-pill-game">{lb.game}</span>
+                            <span className="lobby-item-name">{lb.name}</span>
+                            <span className={`lobby-pill-status status-${lb.status}`}>{lb.status}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Extra fields */}
+                {extraFieldKeys.length > 0 && (
+                  <div className="render-field">
+                    <label className="render-field-label">
+                      <Layers size={13} /> Extra Fields
+                      <span className="render-field-hint">drawn as text overlays</span>
+                    </label>
+                    <div className="extra-fields-grid">
+                      {extraFieldKeys.map((key) => {
+                        // lazarflow-watermark is fixed — not user-editable
+                        if (key === 'lazarflow-watermark') return (
+                          <div key={key} className="extra-field-row">
+                            <span className="extra-field-key">{key}</span>
+                            <span className="extra-field-fixed">lazarflow.app</span>
+                          </div>
+                        )
+                        return (
+                        <div key={key} className="extra-field-row">
+                          <span className="extra-field-key">{key}</span>
+                          <input type="text" className="extra-field-input"
+                            placeholder={key === 'tournament_name' ? 'e.g. BGMI Season 3' : `e.g. ${key}`}
+                            value={extraData[key] || ''}
+                            onChange={(e) => {
+                              setExtraData((p) => ({ ...p, [key]: e.target.value }))
+                              setRenderedUrl(null); setRenderError('')
+                            }} />
+                        </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Adjustments */}
+                <div className="render-field">
+                  <button className={`adj-toggle ${showAdj ? 'open' : ''} ${adjChanged ? 'changed' : ''}`}
+                    onClick={() => setShowAdj((v) => !v)}>
+                    <SlidersHorizontal size={13} /> Image Adjustments
+                    {adjChanged && <span className="adj-changed-dot" />}
+                    <ChevronDown size={13} className={`picker-chevron ${showAdj ? 'flipped' : ''}`} style={{ marginLeft: 'auto' }} />
+                  </button>
+                  {showAdj && (
+                    <div className="adj-panel">
+                      <AdjustmentSlider label="Contrast"   field="contrast"   value={adjustments.contrast}   min={0.1} max={3.0} step={0.1} onChange={setAdj} />
+                      <AdjustmentSlider label="Saturation" field="saturation" value={adjustments.saturation} min={0.0} max={3.0} step={0.1} onChange={setAdj} />
+                      <AdjustmentSlider label="Brightness" field="brightness" value={adjustments.brightness} min={0.1} max={3.0} step={0.1} onChange={setAdj} />
+                      <AdjustmentSlider label="Sharpness"  field="sharpness"  value={adjustments.sharpness}  min={0.0} max={3.0} step={0.1} onChange={setAdj} />
+                    </div>
+                  )}
+                </div>
+
+                <button className="render-run-btn" onClick={handleRender} disabled={!selectedLobby || rendering}>
+                  {rendering ? <><Loader2 size={15} className="spin" /> Rendering…</> : <><Play size={15} /> Render Results</>}
+                </button>
+
+                {renderError && (
+                  <div className="render-error"><AlertCircle size={15} /><span>{renderError}</span></div>
+                )}
+
+                {renderedUrl && (
+                  <div className="render-result">
+                    <div className="render-result-header">
+                      <span className="render-result-label"><CheckCircle2 size={14} /> Render complete</span>
+                      <div className="render-result-actions">
+                        <button className="render-rerun-btn" onClick={handleRender} disabled={rendering}><RefreshCcw size={13} /> Re-render</button>
+                        <button className="render-download-btn" onClick={handleDownload}><Download size={13} /> Download</button>
+                      </div>
+                    </div>
+                    <img src={renderedUrl} alt="Rendered result" className="render-result-img" />
+                    <p className="render-result-meta">Lobby: <strong>{selectedLobby.name}</strong> · Theme: <strong>{theme.name}</strong></p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── INFO PANELS ── */}
+          <div className="theme-drawer-info">
+
+            {/* Original preview */}
+            <section className="drawer-section">
+              <h3 className="drawer-section-title"><ImageIcon size={15} /> Theme Preview</h3>
+              {theme.url ? (
+                <div className="drawer-theme-preview-wrap">
+                  <img src={theme.url} alt={theme.name} className="drawer-theme-preview-img"
+                    onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                  <a href={theme.url} target="_blank" rel="noopener noreferrer" className="drawer-preview-link">
+                    <ExternalLink size={13} /> Open full-res image
+                  </a>
+                </div>
+              ) : (
+                <p className="drawer-empty-note">No image URL on this theme.</p>
+              )}
+            </section>
+
+            {/* Theme details */}
+            <section className="drawer-section">
+              <h3 className="drawer-section-title"><Layers size={15} /> Theme Details</h3>
+              <div className="drawer-info-grid">
+                {[
+                  { label: 'Name',         value: theme.name || '—' },
+                  { label: 'Status (DB)',  value: <span className={`status-badge status-${theme.status || 'pending'}`}>{theme.status || 'pending'}</span> },
+                  { label: 'Computed',     value: <span className="theme-drawer-status-badge" style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.accent}40` }}><StatusIcon size={12} />{meta.label}</span> },
+                  { label: 'Created',      value: formatDate(theme.created_at, true) },
+                  { label: 'Last Updated', value: formatDate(theme.updated_at || theme.created_at, true) },
+                  { label: 'Theme ID',     value: <span className="mono">{theme.id}</span> },
+                ].map(({ label, value }) => (
+                  <div key={label} className="drawer-info-row">
+                    <span className="drawer-info-label">{label}</span>
+                    <span className="drawer-info-value">{value}</span>
+                  </div>
+                ))}
+                {theme.url && (
+                  <div className="drawer-info-row">
+                    <span className="drawer-info-label">Image URL</span>
+                    <a href={theme.url} target="_blank" rel="noopener noreferrer" className="drawer-info-link">
+                      <LinkIcon size={12} /> View Image
+                    </a>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* Mapping config */}
+            <section className="drawer-section">
+              <h3 className="drawer-section-title"><ChevronRight size={15} /> Mapping Config</h3>
+              {!theme.mapping_config?.cells ? (
+                <p className="drawer-empty-note">No mapping configuration saved.</p>
+              ) : (
+                <div className="drawer-info-grid">
+                  {[
+                    { label: 'Cell Rows',     value: theme.mapping_config.cells.length },
+                    { label: 'Mapped Rows',   value: `${countMappedCells()} / ${theme.mapping_config.cells.length}` },
+                    { label: 'Mapped Fields', value: countMappedFields() },
+                    ...(theme.mapping_config.scoreboard ? [
+                      { label: 'Font',      value: <span className="mono">{theme.mapping_config.scoreboard.font_path || '—'}</span> },
+                      { label: 'Font Size', value: theme.mapping_config.scoreboard.font_size ?? '—' },
+                      ...(theme.mapping_config.scoreboard.color_rgb ? [{
+                        label: 'Base Color',
+                        value: <span className="drawer-color-swatch">
+                          <span className="color-dot" style={{ background: `rgb(${theme.mapping_config.scoreboard.color_rgb.join(',')})` }} />
+                          rgb({theme.mapping_config.scoreboard.color_rgb.join(', ')})
+                        </span>,
+                      }] : []),
+                    ] : []),
+                    ...(extraFieldKeys.length > 0 ? [{ label: 'Extra Fields', value: extraFieldKeys.join(', ') }] : []),
+                  ].map(({ label, value }) => (
+                    <div key={label} className="drawer-info-row">
+                      <span className="drawer-info-label">{label}</span>
+                      <span className="drawer-info-value">{value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Owner */}
+            <section className="drawer-section">
+              <h3 className="drawer-section-title"><User size={15} /> Submitted By</h3>
+              {!theme.user_id ? (
+                <div className="drawer-community-note">
+                  <Globe size={20} />
+                  <div>
+                    <div className="drawer-community-title">Community Theme</div>
+                    <div className="drawer-community-desc">This theme has no owner — it's available to all users on the platform.</div>
+                  </div>
+                </div>
+              ) : loadingOwner ? (
+                <div className="drawer-owner-loading"><Loader2 size={16} className="spin" /> Loading owner…</div>
+              ) : !owner ? (
+                <p className="drawer-empty-note">Owner not found. <span className="mono">{theme.user_id}</span></p>
+              ) : (
+                <div className="drawer-owner-card">
+                  <div className="drawer-owner-avatar">
+                    {(owner.display_name || owner.username || owner.emails || '?').split(/\s|@/)[0].slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="drawer-owner-info">
+                    <div className="drawer-owner-name">{owner.display_name || owner.username || '(no name)'}</div>
+                    <div className="drawer-owner-meta">
+                      {owner.is_admin && <span className="admin-badge admin-yes">Admin</span>}
+                    </div>
+                  </div>
+                  <div className="drawer-owner-dates">
+                    <div className="drawer-owner-date-row"><Calendar size={12} /><span>Joined {formatDate(owner.created_at, true)}</span></div>
+                    <div className="drawer-owner-date-row mono"><Hash size={12} /><span>{owner.id.slice(0, 12)}…</span></div>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* Danger zone */}
+            <section className="drawer-section drawer-danger-zone">
+              <h3 className="drawer-section-title danger-title"><Trash2 size={15} /> Danger Zone</h3>
+              <div className="danger-zone-row">
+                <div>
+                  <div className="danger-zone-label">Delete this theme</div>
+                  <div className="danger-zone-desc">Permanently removes the theme and all its data. Cannot be undone.</div>
+                </div>
+                <button className="danger-delete-btn" onClick={() => setConfirmDelete(true)}>
+                  <Trash2 size={14} /> Delete Theme
+                </button>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </div>
+
+      {/* Delete confirm */}
+      {confirmDelete && (
+        <ConfirmDeleteModal
+          count={1}
+          names={[theme.name || theme.id.slice(0, 8)]}
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmDelete(false)}
+          deleting={deleting}
+        />
+      )}
+
+      {/* Mapping editor — full-screen overlay */}
+      {mappingOpen && (
+        <ThemeMappingEditor
+          theme={theme}
+          onClose={() => setMappingOpen(false)}
+          onSaved={(updated) => {
+            setTheme(updated)
+            onUpdated?.(updated)
+            setMappingOpen(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Create Community Theme Modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CreateCommunityThemeModal = ({ onClose, onCreated }) => {
+  const [name,    setName]    = useState('')
+  const [url,     setUrl]     = useState('')
+  const [status,  setStatus]  = useState('pending')
+  const [saving,  setSaving]  = useState(false)
+  const [error,   setError]   = useState('')
+  const [preview, setPreview] = useState(false)
+
+  const canSave = name.trim().length > 0
+
+  const handleCreate = async () => {
+    if (!canSave) return
+    setSaving(true); setError('')
+    try {
+      const { data, error: err } = await supabase
+        .from('themes')
+        .insert({
+          name:       name.trim(),
+          url:        url.trim() || null,
+          status,
+          user_id:    null,   // null user_id = community theme
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .single()
+      if (err) throw err
+      onCreated(data)
+      onClose()
+    } catch (e) {
+      setError(e.message)
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <div className="theme-builder">
-      <div className="section-header">
-        <div className="header-title-group">
-          <h2><Palette size={20} /> Theme Builder</h2>
-          <p className="subtitle">Design and verify custom leaderboard themes</p>
-        </div>
-        
-        <div className="header-actions-group">          
-          <button
-            type="button"
-            className={`grid-mode-btn ${gridMode ? 'active' : ''}`}
-            onClick={() => {
-              const entering = !gridMode
-              setGridMode(entering)
-              if (entering) {
-                // â”€â”€ Pre-populate from existing config if available â”€â”€
-                let newColX = { rank: null, team: null, w: null, pp: null, kp: null, total: null }
-                let newRowYFirst = null
-                let newRowYLast = null
-                let newStyles = { ...gridFieldStyles }
-                let hasExisting = false
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="create-theme-modal" onClick={e => e.stopPropagation()}>
 
-                try {
-                  const config = JSON.parse(mappingConfig)
-                  if (config.cells && config.cells.length > 0) {
-                    const first = config.cells[0]
-                    const last = config.cells[config.cells.length - 1]
-                    const rgb2hex = (rgb) => rgb ? '#' + rgb.map(v => v.toString(16).padStart(2, '0')).join('') : '#ffffff'
-
-                    GRID_FIELDS.forEach(field => {
-                      if (first[field] && (first[field].x !== 0 || first[field].y !== 0)) {
-                        newColX[field] = first[field].x
-                        newStyles[field] = {
-                          font_size: first[field].font_size || 130,
-                          font_path: first[field].font_path || 'Anton-Regular.ttf',
-                          color_hex: rgb2hex(first[field].color_rgb),
-                          alignment: first[field].alignment || 'center',
-                        }
-                        hasExisting = true
-                      }
-                    })
-
-                    const ff = GRID_FIELDS.find(f => first[f] && first[f].y !== 0)
-                    const lf = GRID_FIELDS.find(f => last[f] && last[f].y !== 0)
-                    if (ff) newRowYFirst = first[ff].y
-                    if (lf) newRowYLast = last[lf].y
-                  }
-                } catch (_) {}
-
-                setColumnX(newColX)
-                setRowYFirst(newRowYFirst)
-                setRowYLast(newRowYLast)
-                setGridFieldStyles(newStyles)
-                setGridStep('columns')
-                // Point active field to first un-set column, or rank if all set
-                setGridActiveField(GRID_FIELDS.find(f => newColX[f] === null) || 'rank')
-                setRowYClickStep(newRowYFirst === null ? 'first' : 'last')
-                setPreviewMode('image')
-
-                if (hasExisting) {
-                  addLog('info', 'âš¡ Grid Mode â€” existing config pre-loaded. Click chips to adjust, then re-generate.')
-                } else {
-                  addLog('info', 'âš¡ Grid Mode started â€” click each column on the image.')
-                }
-              }
-            }}
-            title="âš¡ Smart Grid Mode: set all 72 entries in ~8 clicks"
-          >
-            <LayoutGrid size={16} />
-            {gridMode ? 'Exit Grid Mode' : 'âš¡ Grid Mode'}
-          </button>
-          <div className="pending-themes-container">
-            <button 
-              type="button"
-              className={`pending-themes-btn ${showPendingDropdown ? 'active' : ''}`}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                fetchPendingThemes();
-              }}
-              disabled={fetchingPending}
-              title="View themes with missing configuration"
-            >
-              {fetchingPending ? <RefreshCcw size={16} className="spin" /> : <List size={16} />}
-              Pending Themes
-              {pendingThemes.length > 0 && <span className="pending-count">{pendingThemes.length}</span>}
-            </button>
-            
-            {showPendingDropdown && (
-              <div className="pending-dropdown">
-                <div className="dropdown-header">
-                  <span>Pending Themes</span>
-                  <button onClick={() => setShowPendingDropdown(false)}><XCircle size={14} /></button>
-                </div>
-                <div className="dropdown-list">
-                  {pendingThemes.length === 0 ? (
-                    <div className="dropdown-empty">No pending themes found</div>
-                  ) : (
-                    pendingThemes.map(theme => (
-                      <div 
-                        key={theme.id} 
-                        className="dropdown-item"
-                        onClick={() => handleSelectPendingTheme(theme)}
-                      >
-                        <div className="item-info">
-                          <span className="item-name">{theme.name || 'Unnamed Theme'}</span>
-                          <span className="item-url">{theme.url}</span>
-                        </div>
-                        <ChevronLeft size={14} className="item-arrow" />
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
+        {/* Header */}
+        <div className="ctm-header">
+          <div className="ctm-title">
+            <Globe size={18} className="ctm-title-icon" />
+            <h2>Add Community Theme</h2>
           </div>
+          <button className="ctm-close" onClick={onClose}><X size={18} /></button>
         </div>
-      </div>
 
-      <div className="builder-container">
+        <div className="ctm-body">
+          <p className="ctm-description">
+            Community themes are available to all users. Only admins can create them from this panel.
+          </p>
 
-        {/* â”€â”€ Grid Mode Wizard â”€â”€ */}
-        {gridMode ? (
-          <div className="builder-form grid-wizard">
-
-            {/* Step indicator */}
-            <div className="grid-steps-indicator">
-              <div className={`grid-step-pill ${gridStep === 'columns' ? 'active' : 'done'}`}>
-                <span className="step-num">1</span> Columns
-              </div>
-              <div className="step-arrow">â†’</div>
-              <div className={`grid-step-pill ${gridStep === 'rows' ? 'active' : gridStep === 'styles' ? 'done' : ''}`}>
-                <span className="step-num">2</span> Rows
-              </div>
-              <div className="step-arrow">â†’</div>
-              <div className={`grid-step-pill ${gridStep === 'styles' ? 'active' : ''}`}>
-                <span className="step-num">3</span> Styles
-              </div>
-            </div>
-
-            {/* â”€â”€ Step 1: Columns â”€â”€ */}
-            {gridStep === 'columns' && (
-              <div className="grid-step-content">
-                <div className="grid-instruction">
-                  <span className="instruction-icon">ðŸ‘†</span>
-                  <div>
-                    <strong>Click on the image</strong> where the
-                    <span className="highlight-field"> {gridActiveField.toUpperCase()} </span>
-                    column is. Auto-advances to next field.
-                  </div>
-                </div>
-
-                <div className="grid-field-chips">
-                  {GRID_FIELDS.map(field => (
-                    <button
-                      key={field}
-                      className={`field-chip ${
-                        gridActiveField === field ? 'active' :
-                        columnX[field] !== null ? 'done' : ''
-                      }`}
-                      onClick={() => setGridActiveField(field)}
-                      title={`Click to re-select ${field}`}
-                    >
-                      {columnX[field] !== null ? 'âœ“ ' : ''}{field.toUpperCase()}
-                      {columnX[field] !== null && (
-                        <span className="chip-x">x={columnX[field]}</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="grid-progress-bar">
-                  <div
-                    className="grid-progress-fill"
-                    style={{ width: `${(GRID_FIELDS.filter(f => columnX[f] !== null).length / GRID_FIELDS.length) * 100}%` }}
-                  />
-                  <span>{GRID_FIELDS.filter(f => columnX[f] !== null).length} / {GRID_FIELDS.length} columns set</span>
-                </div>
-
-                {GRID_FIELDS.every(f => columnX[f] !== null) && (
-                  <button className="grid-next-btn" onClick={() => { setGridStep('rows'); setRowYClickStep('first') }}>
-                    Next: Set Rows â†’
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* â”€â”€ Step 2: Rows â”€â”€ */}
-            {gridStep === 'rows' && (
-              <div className="grid-step-content">
-                <div className="grid-instruction">
-                  <span className="instruction-icon">ðŸ‘†</span>
-                  <div>
-                    <strong>Click on the image</strong> at the vertical center of
-                    <span className="highlight-field"> {rowYClickStep === 'first' ? 'ROW 1 (top team)' : 'ROW 12 (bottom team)'}</span>.
-                    Y for all rows between will be auto-spaced.
-                  </div>
-                </div>
-
-                <div className="grid-row-status">
-                  <div className={`row-status-item ${rowYFirst !== null ? 'done' : rowYClickStep === 'first' ? 'active' : ''}`}>
-                    <span className="row-label">Row 1 (top)</span>
-                    <span className="row-value">{rowYFirst !== null ? `Y = ${rowYFirst}` : 'click image â†—'}</span>
-                  </div>
-                  <div className="row-spacer">â‹® 10 rows auto-spaced â‹®</div>
-                  <div className={`row-status-item ${rowYLast !== null ? 'done' : rowYClickStep === 'last' ? 'active' : ''}`}>
-                    <span className="row-label">Row 12 (bottom)</span>
-                    <span className="row-value">{rowYLast !== null ? `Y = ${rowYLast}` : 'click image â†—'}</span>
-                  </div>
-                </div>
-
-                <div className="grid-nav-actions">
-                  <button className="grid-back-btn" onClick={() => setGridStep('columns')}>â† Back</button>
-                  {rowYFirst !== null && rowYLast !== null && (
-                    <button className="grid-next-btn" onClick={() => setGridStep('styles')}>Next: Styles â†’</button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* â”€â”€ Step 3: Styles & Generate â”€â”€ */}
-            {gridStep === 'styles' && (
-              <div className="grid-step-content">
-                <div className="grid-instruction">
-                  <span className="instruction-icon">ðŸŽ¨</span>
-                  <div><strong>Set font, size & color</strong> once per column â€” applies to all 12 rows automatically.</div>
-                </div>
-
-                <div className="grid-styles-table">
-                  <div className="styles-row-header">
-                    <span>Field</span><span>Font</span><span>Size</span><span>Color</span>
-                  </div>
-                  {GRID_FIELDS.map(field => (
-                    <div key={field} className="styles-row">
-                      <span className="field-label-cell">{field.toUpperCase()}</span>
-                      <select
-                        value={gridFieldStyles[field].font_path}
-                        onChange={e => setGridFieldStyles(prev => ({ ...prev, [field]: { ...prev[field], font_path: e.target.value } }))}
-                        className="coord-selector"
-                      >
-                        {FONT_OPTIONS.map(f => <option key={f} value={f}>{f.split('-')[0]}</option>)}
-                      </select>
-                      <input
-                        type="number"
-                        value={gridFieldStyles[field].font_size}
-                        onChange={e => setGridFieldStyles(prev => ({ ...prev, [field]: { ...prev[field], font_size: parseInt(e.target.value) } }))}
-                        className="coord-selector"
-                        style={{ width: '65px' }}
-                      />
-                      <input
-                        type="color"
-                        value={gridFieldStyles[field].color_hex}
-                        onChange={e => setGridFieldStyles(prev => ({ ...prev, [field]: { ...prev[field], color_hex: e.target.value } }))}
-                        className="grid-color-input"
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                <div className="grid-summary-box">
-                  <div className="summary-line">ðŸ“ Rows: Y={rowYFirst} (row 1) â†’ Y={rowYLast} (row 12), evenly spaced</div>
-                  <div className="summary-line">ðŸ“Š Columns: {GRID_FIELDS.map(f => `${f.toUpperCase()}@x=${columnX[f]}`).join(' Â· ')}</div>
-                  <div className="summary-line">âš¡ Will generate <strong>72 entries</strong> (12 rows Ã— 6 fields)</div>
-                </div>
-
-                <div className="grid-nav-actions">
-                  <button className="grid-back-btn" onClick={() => setGridStep('rows')}>â† Back</button>
-                  <button className="grid-generate-btn" onClick={handleGenerateGridConfig}>
-                    <LayoutGrid size={16} /> Generate Config
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Always show theme name + image URL even in grid mode */}
-            <div className="grid-mode-meta">
-              <div className="form-section">
-                <label className="form-label">Theme Name</label>
-                <input type="text" value={themeName} onChange={e => setThemeName(e.target.value)} className="builder-input" />
-              </div>
-              <div className="form-section">
-                <label className="form-label">Background Image URL</label>
-                <div className="input-with-icon">
-                  <ImageIcon size={16} className="input-icon" />
-                  <input type="text" value={imageUrl} onChange={e => setImageUrl(e.target.value)} className="builder-input" placeholder="https://..." />
-                </div>
-              </div>
-            </div>
-          </div>
-
-        ) : (
-
-        /* â”€â”€ Normal Form â”€â”€ */
-        <div className="builder-form">
-          <div className="form-section">
-            <label className="form-label">Theme Name</label>
+          {/* Name */}
+          <div className="ctm-field">
+            <label className="ctm-label">Theme Name <span className="ctm-required">*</span></label>
             <input
-              type="text"
-              placeholder="e.g. Modern Dark Tournament"
-              value={themeName}
-              onChange={(e) => setThemeName(e.target.value)}
-              className="builder-input"
+              className="ctm-input"
+              placeholder="e.g. BGMI Pro League v2"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              autoFocus
             />
           </div>
 
-          <div className="form-section">
-            <label className="form-label">Background Image URL</label>
-            <div className="input-with-icon">
-              <ImageIcon size={16} className="input-icon" />
+          {/* Image URL */}
+          <div className="ctm-field">
+            <label className="ctm-label">
+              <LinkIcon size={12} /> Background Image URL
+              <span className="ctm-optional">optional — can be added later</span>
+            </label>
+            <div className="ctm-url-row">
               <input
-                type="text"
-                placeholder="https://example.com/theme.png"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                className="builder-input"
+                className="ctm-input"
+                placeholder="https://example.com/background.png"
+                value={url}
+                onChange={e => { setUrl(e.target.value); setPreview(false) }}
               />
-            </div>
-          </div>
-
-          <div className="form-section">
-            <div className="label-with-actions">
-              <label className="form-label">Mapping Config (JSON)</label>
-              <div className="json-actions">
-                <button 
-                  className={`json-view-toggle ${!showJsonViewer ? 'active' : ''}`}
-                  onClick={() => setShowJsonViewer(false)}
-                  title="Editor Mode"
+              {url.trim() && (
+                <button
+                  className="ctm-preview-btn"
+                  type="button"
+                  onClick={() => setPreview(v => !v)}
+                  title="Toggle image preview"
                 >
-                  Edit
+                  <Eye size={14} /> {preview ? 'Hide' : 'Preview'}
                 </button>
-                <button 
-                  className={`json-view-toggle ${showJsonViewer ? 'active' : ''}`}
-                  onClick={() => setShowJsonViewer(true)}
-                  title="Viewer Mode"
-                >
-                  <FileJson size={14} /> View
-                </button>
-                <button 
-                  className="json-action-btn"
-                  onClick={handleFormatJson}
-                  title="Auto Format JSON"
-                >
-                  <LayoutGrid size={14} /> Format
-                </button>
-              </div>
-            </div>
-
-            {showJsonViewer ? (
-              <div className="json-viewer-container">
-                {(() => {
-                  try {
-                    const parsed = JSON.parse(mappingConfig);
-                    return (
-                      <div className="json-tree-root">
-                        <JsonTreeNode label="JSON" value={parsed} />
-                      </div>
-                    );
-                  } catch (e) {
-                    return (
-                      <div className="json-error">
-                        <XCircle size={16} />
-                        <span>Invalid JSON - please switch back to edit mode to fix it.</span>
-                      </div>
-                    );
-                  }
-                })()}
-              </div>
-            ) : (
-              <textarea
-                placeholder="Enter JSON mapping config..."
-                value={mappingConfig}
-                onChange={(e) => setMappingConfig(e.target.value)}
-                className="builder-textarea large-editor"
-                rows="35"
-              ></textarea>
-            )}
-          </div>
-
-          {status.message && (
-            <div className={`notification-status ${status.type}`}>
-              {status.type === 'success' ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
-              <div className="status-content">{status.message}</div>
-            </div>
-          )}
-
-          <div className="builder-actions">
-            <button 
-              className="preview-btn" 
-              onClick={handleGeneratePreview}
-              disabled={loading}
-            >
-              {loading ? <RefreshCcw size={18} className="spin" /> : <Play size={18} />}
-              Generate Live Preview
-            </button>
-            <button 
-              className="save-btn" 
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? <RefreshCcw size={18} className="spin" /> : <Save size={18} />}
-              Verify & Save
-            </button>
-          </div>
-        </div>
-        )}
-
-        <div className="builder-preview">
-          <div className="preview-header-with-toggle">
-            <h3>Live Preview</h3>
-            <div className="preview-mode-toggle">
-              <button 
-                className={`mode-toggle-btn ${previewMode === 'image' ? 'active' : ''}`}
-                onClick={() => setPreviewMode('image')}
-              >
-                <ImageIcon size={14} /> Background / Picker
-              </button>
-              <button 
-                className={`mode-toggle-btn ${previewMode === 'client' ? 'active' : ''}`}
-                onClick={() => setPreviewMode('client')}
-              >
-                <Eye size={14} /> Client Preview
-              </button>
-              <button 
-                className={`mode-toggle-btn ${previewMode === 'result' ? 'active' : ''}`}
-                onClick={() => setPreviewMode('result')}
-                disabled={!previewImage}
-              >
-                <Play size={14} /> Server Result
-              </button>
-            </div>
-          </div>
-          
-          {previewMode === 'image' && (
-            <>
-              <div className="selection-toolbar">
-                <button 
-                  className={`toolbar-btn ${selectionMode === 'point' ? 'active' : ''}`}
-                  onClick={() => setSelectionMode('point')}
-                  title="Pick Point"
-                >
-                  <MousePointer2 size={16} /> Point
-                </button>
-                <button 
-                  className={`toolbar-btn ${selectionMode === 'rect' ? 'active' : ''}`}
-                  onClick={() => setSelectionMode('rect')}
-                  title="Draw Rectangle"
-                >
-                  <Square size={16} /> Rectangle
-                </button>
-                <button 
-                  className={`toolbar-btn ${selectionMode === 'circle' ? 'active' : ''}`}
-                  onClick={() => setSelectionMode('circle')}
-                  title="Draw Circle"
-                >
-                  <Circle size={16} /> Circle
-                </button>
-                
-                <div className="toolbar-divider" />
-                
-                <button 
-                  className={`toolbar-btn overlay-toggle ${showLiveOverlay ? 'active' : ''}`}
-                  onClick={() => setShowLiveOverlay(!showLiveOverlay)}
-                  title="Toggle Instant Visibility"
-                >
-                  <Eye size={16} /> {showLiveOverlay ? 'Overlay: ON' : 'Overlay: OFF'}
-                </button>
-              </div>
-
-              {clickedCoord && (
-                <div className="coordinate-display">
-                  <div className="coord-info">
-                    {clickedCoord.type && clickedCoord.type !== 'point' ? (
-                      <div className="shape-info">
-                        <span><strong>{clickedCoord.type.toUpperCase()}</strong> Area:</span>
-                        <span>X: {clickedCoord.x}, Y: {clickedCoord.y}</span>
-                        <span>W: {clickedCoord.width}, H: {clickedCoord.height}</span>
-                        <span>Center: <strong>{clickedCoord.centerX}, {clickedCoord.centerY}</strong></span>
-                      </div>
-                    ) : (
-                      <span>Last Click: <strong>X: {clickedCoord.x}, Y: {clickedCoord.y}</strong></span>
-                    )}
-                  </div>
-
-                  <div className="coord-implement-section">
-                    <div className="selector-group">
-                      {selectedField !== 'tournament_name' && (
-                        <select 
-                          value={selectedCellIdx} 
-                          onChange={(e) => {
-                            const newIdx = parseInt(e.target.value);
-                            setSelectedCellIdx(newIdx);
-                            // Auto-load current settings for this field
-                            try {
-                              const config = JSON.parse(mappingConfig);
-                              const cell = config.cells?.[newIdx];
-                              const fieldData = cell?.[selectedField];
-                              if (fieldData) {
-                                if (fieldData.font_size) setTempFontSize(fieldData.font_size);
-                                if (fieldData.alignment) setTempAlignment(fieldData.alignment);
-                                if (fieldData.color_rgb) {
-                                  const hex = '#' + fieldData.color_rgb.map(x => x.toString(16).padStart(2, '0')).join('');
-                                  setTempColor(hex);
-                                }
-                              }
-                            } catch (e) {}
-                          }}
-                          className="coord-selector"
-                          title="Select Row"
-                        >
-                          {(() => {
-                            try {
-                              const config = JSON.parse(mappingConfig);
-                              const cells = config.cells || [];
-                              return cells.map((_, idx) => (
-                                <option key={idx} value={idx}>Row {idx + 1}</option>
-                              ));
-                            } catch (e) {
-                              return <option value={0}>Row 1</option>;
-                            }
-                          })()}
-                        </select>
-                      )}
-                      <select 
-                        value={selectedField} 
-                        onChange={(e) => {
-                          const newField = e.target.value;
-                          setSelectedField(newField);
-                          // Auto-load current settings for this field
-                          try {
-                            const config = JSON.parse(mappingConfig);
-                            let fieldData;
-                            if (newField === 'tournament_name') {
-                              fieldData = config.extra_fields?.tournament_name;
-                            } else {
-                              fieldData = config.cells?.[selectedCellIdx]?.[newField];
-                            }
-                            
-                            if (fieldData) {
-                              if (fieldData.font_size) setTempFontSize(fieldData.font_size);
-                              if (fieldData.font_path) setTempFontPath(fieldData.font_path);
-                              if (fieldData.color_rgb) {
-                                const hex = '#' + fieldData.color_rgb.map(x => x.toString(16).padStart(2, '0')).join('');
-                                setTempColor(hex);
-                              }
-                            }
-                          } catch (e) {}
-                        }}
-                        className="coord-selector"
-                        title="Select Field"
-                      >
-                        {CONFIG_FIELDS.map(field => (
-                          <option key={field} value={field}>{field.toUpperCase()}</option>
-                        ))}
-                      </select>
-                      <select 
-                        value={tempFontPath} 
-                        onChange={(e) => setTempFontPath(e.target.value)}
-                        className="coord-selector"
-                        title="Select Font"
-                      >
-                        {FONT_OPTIONS.map(font => (
-                          <option key={font} value={font}>{font.split('-')[0]}</option>
-                        ))}
-                      </select>
-                      <input 
-                          type="number" 
-                          value={tempFontSize} 
-                          onChange={(e) => setTempFontSize(parseInt(e.target.value))}
-                          className="coord-selector font-size-input"
-                          style={{ width: '70px' }}
-                          title="Font Size for this field (px)"
-                        />
-                        <div className="color-picker-container" title="Pick Color">
-                          <div 
-                            className="color-preview" 
-                            style={{ backgroundColor: tempColor }}
-                            onClick={() => document.getElementById('hidden-color-picker').click()}
-                          >
-                            <Palette size={14} style={{ color: tempColor === '#ffffff' ? '#000' : '#fff' }} />
-                          </div>
-                          <input 
-                            id="hidden-color-picker"
-                            type="color" 
-                            value={tempColor} 
-                            onChange={(e) => setTempColor(e.target.value)}
-                            className="hidden-color-input"
-                          />
-                        </div>
-                      </div>
-                      <div className="implement-btn-group">
-                        <button className="implement-btn" onClick={handleUpdateMappingConfig}>
-                          <Save size={14} /> Update Config
-                        </button>
-                        <button
-                          className={`undo-coord-btn ${configHistory.length === 0 ? 'disabled' : ''}`}
-                          onClick={handleUndo}
-                          disabled={configHistory.length === 0}
-                          title={configHistory.length > 0 ? `Undo last apply (Ctrl+Z) — ${configHistory.length} step${configHistory.length !== 1 ? 's' : ''} available` : 'Nothing to undo'}
-                        >
-                          ↩ Undo
-                          {configHistory.length > 0 && (
-                            <span className="undo-count">{configHistory.length}</span>
-                          )}
-                        </button>
-                      </div>
-                  </div>
-
-                  <div className="coord-actions">
-                    <button className="copy-coord-btn" onClick={() => {
-                      const textToCopy = clickedCoord.type && clickedCoord.type !== 'point'
-                        ? `"x": ${clickedCoord.centerX}, "y": ${clickedCoord.centerY}, "width": ${clickedCoord.width}, "height": ${clickedCoord.height}`
-                        : `"x": ${clickedCoord.x}, "y": ${clickedCoord.y}`;
-                      navigator.clipboard.writeText(textToCopy)
-                      addLog('info', 'Coordinates copied to clipboard')
-                    }}>
-                      Copy JSON
-                    </button>
-                    <button className="clear-coord-btn" onClick={() => {
-                      setClickedCoord(null)
-                      setStartPos(null)
-                      setCurrentPos(null)
-                    }}>
-                      Clear
-                    </button>
-                  </div>
-                </div>
               )}
-            </>
-          )}
-
-          <div 
-            className="image-preview-area"
-            onMouseMove={previewMode === 'image' ? handleMouseMove : undefined}
-            onMouseUp={previewMode === 'image' ? handleMouseUp : undefined}
-            onMouseLeave={() => setIsDrawing(false)}
-          >
-            {previewMode === 'result' && previewImage ? (
-              <img src={previewImage} alt="Theme Preview" className="preview-rendered-img" />
-            ) : (imageUrl && !imageError) ? (
-              <div className="preview-relative-container" style={{ position: 'relative', display: 'inline-block' }}>
-                <img 
-                  ref={imageRef}
-                  src={imageUrl} 
-                  alt="Background Preview" 
-                  className={`preview-rendered-img raw-bg ${previewMode === 'image' ? (selectionMode !== 'point' ? 'drawing-active' : 'picker-active') : ''}`} 
-                  onMouseDown={previewMode === 'image' ? handleMouseDown : undefined}
-                  draggable="false"
-                  onError={() => {
-                    setImageError(true)
-                    addLog('error', 'Failed to load background image from URL', imageUrl)
-                  }}
-                />
-                
-                {/* Client-Side Preview Overlay */}
-                {((previewMode === 'image' && showLiveOverlay) || previewMode === 'client') && (
-                    <ClientPreviewOverlay 
-                    config={(() => {
-                      try {
-                        return JSON.parse(mappingConfig);
-                      } catch (e) {
-                        return null;
-                      }
-                    })()} 
-                    imageRef={imageRef}
-                    imageUrl={imageUrl}
-                    selectedCellIdx={selectedCellIdx}
-                  />
-                )}
-
-                {/* âš¡ Grid Guide Lines â€” Canva-style alignment overlay */}
-                {gridMode && (
-                  <GridGuideOverlay
-                    imageRef={imageRef}
-                    imageUrl={imageUrl}
-                    columnX={columnX}
-                    rowYFirst={rowYFirst}
-                    rowYLast={rowYLast}
-                  />
-                )}
-                
-                {/* Normal Mode: Canva-style crosshair and placed-point dots */}
-                {!gridMode && previewMode === 'image' && selectionMode === 'point' && (
-                  <NormalModeOverlay
-                    imageRef={imageRef}
-                    imageUrl={imageUrl}
-                    clickedCoord={clickedCoord}
-                    mappingConfig={mappingConfig}
-                  />
-                )}
-{/* Drawing Overlay */}
-                {previewMode === 'image' && isDrawing && startPos && currentPos && (
-                  <div 
-                    className={`selection-overlay ${selectionMode}`}
-                    style={{
-                      position: 'absolute',
-                      left: Math.min(startPos.screenX, currentPos.screenX),
-                      top: Math.min(startPos.screenY, currentPos.screenY),
-                      width: Math.abs(currentPos.screenX - startPos.screenX),
-                      height: Math.abs(currentPos.screenY - startPos.screenY),
-                      pointerEvents: 'none',
-                      border: '2px solid var(--primary)',
-                      background: 'rgba(99, 102, 241, 0.2)',
-                      borderRadius: selectionMode === 'circle' ? '50%' : '4px'
-                    }}
-                  />
-                )}
-                
-                {/* Persistent Selection Highlight */}
-                {previewMode === 'image' && !isDrawing && clickedCoord && imageRef.current && (
-                  clickedCoord.type === 'point' ? (
-                    <div 
-                      className="selection-highlight point"
-                      style={{
-                        position: 'absolute',
-                        left: (clickedCoord.x / imageRef.current.naturalWidth) * imageRef.current.clientWidth,
-                        top: (clickedCoord.y / imageRef.current.naturalHeight) * imageRef.current.clientHeight,
-                        width: '12px',
-                        height: '12px',
-                        transform: 'translate(-50%, -50%)',
-                        pointerEvents: 'none',
-                        border: '2px solid #ffeb3b',
-                        borderRadius: '50%',
-                        background: 'rgba(255, 235, 59, 0.5)',
-                        boxShadow: '0 0 10px rgba(0,0,0,0.5)',
-                        zIndex: 20
-                      }}
-                    >
-                      {/* Crosshair lines for the point */}
-                      <div style={{ position: 'absolute', top: '50%', left: '-5px', width: '22px', height: '1px', background: '#ffeb3b', transform: 'translateY(-50%)' }} />
-                      <div style={{ position: 'absolute', left: '50%', top: '-5px', width: '1px', height: '22px', background: '#ffeb3b', transform: 'translateX(-50%)' }} />
-                    </div>
-                  ) : (
-                    <div 
-                      className={`selection-highlight ${clickedCoord.type}`}
-                      style={{
-                        position: 'absolute',
-                        left: (clickedCoord.x / imageRef.current.naturalWidth) * imageRef.current.clientWidth,
-                        top: (clickedCoord.y / imageRef.current.naturalHeight) * imageRef.current.clientHeight,
-                        width: (clickedCoord.width / imageRef.current.naturalWidth) * imageRef.current.clientWidth,
-                        height: (clickedCoord.height / imageRef.current.naturalHeight) * imageRef.current.clientHeight,
-                        pointerEvents: 'none',
-                        border: '2px dashed var(--primary)',
-                        background: 'rgba(99, 102, 241, 0.1)',
-                        borderRadius: clickedCoord.type === 'circle' ? '50%' : '4px'
-                      }}
-                    />
-                  )
-                )}
-              </div>
-            ) : (
-              <div className="preview-placeholder">
-                <ImageIcon size={48} />
-                <p>{imageError ? 'Invalid Image URL or Access Denied' : 'Enter an image URL and click "Generate Live Preview"'}</p>
+            </div>
+            {preview && url.trim() && (
+              <div className="ctm-img-preview">
+                <img src={url.trim()} alt="preview"
+                  onError={e => { e.currentTarget.style.display='none' }} />
               </div>
             )}
           </div>
-          <div className="preview-hint">
-            <Info size={14} /> 
-            {previewMode === 'result' ? 'Showing rendered preview with dummy data.' : 
-             selectionMode === 'point' ? 'Interactive Mode: Click anywhere on the background image to get X and Y coordinates.' :
-             `Interactive Mode: Click and drag on the image to draw a ${selectionMode}.`}
+
+          {/* Status */}
+          <div className="ctm-field">
+            <label className="ctm-label">Initial Status</label>
+            <div className="ctm-status-pills">
+              {['pending', 'verified'].map(s => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`ctm-status-pill ${status === s ? 'active' : ''} ctm-pill-${s}`}
+                  onClick={() => setStatus(s)}
+                >
+                  {s === 'verified' ? <CheckCircle2 size={13} /> : <Clock size={13} />}
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {/* Community badge info */}
+          <div className="ctm-info-banner">
+            <Globe size={13} />
+            <span>This theme will have <strong>no owner</strong> — it's shared across all users as a community design.</span>
+          </div>
+
+          {error && (
+            <div className="ctm-error"><AlertCircle size={14} /> {error}</div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="ctm-footer">
+          <button className="ctm-cancel-btn" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button
+            className="ctm-create-btn"
+            onClick={handleCreate}
+            disabled={!canSave || saving}
+          >
+            {saving
+              ? <><Loader2 size={14} className="spin" /> Creating…</>
+              : <><Plus size={14} /> Create Community Theme</>
+            }
+          </button>
         </div>
       </div>
     </div>
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Main ThemeBuilderView
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ThemeBuilderView = ({ addLog }) => {
+  const [themes, setThemes]           = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [imageErrors, setImageErrors] = useState({})
+  const [activeFilter, setActiveFilter] = useState('all')   // verification status filter
+  const [typeFilter, setTypeFilter]     = useState('all')   // 'all' | 'community' | 'custom'
+  const [selectedTheme, setSelectedTheme] = useState(null)
+  const [showDuplicates, setShowDuplicates] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  // Cache owner names for card chips (custom themes)
+  const [ownerCache, setOwnerCache] = useState({}) // userId -> { display_name, username, emails }
+
+  const fetchThemes = async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase.from('themes').select('*').order('created_at', { ascending: false })
+      if (error) throw error
+      const list = data || []
+      setThemes(list)
+      addLog?.('info', `Loaded ${list.length} themes`)
+
+      // Batch-fetch unique owner profiles for custom themes
+      const userIds = [...new Set(list.map(t => t.user_id).filter(Boolean))]
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, display_name, username')
+          .in('id', userIds)
+        if (profiles) {
+          const map = {}
+          profiles.forEach(p => { map[p.id] = p })
+          setOwnerCache(map)
+        }
+      }
+    } catch (err) {
+      addLog?.('error', 'Failed to load themes', err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { fetchThemes() }, [])
+
+  // ── Counts ──
+  const communityCount = themes.filter(t => !t.user_id).length
+  const customCount    = themes.filter(t =>  t.user_id).length
+
+  // Duplicate count (by url)
+  const dupCount = (() => {
+    const urlCounts = themes.reduce((acc, t) => {
+      const key = (t.url || '').trim().toLowerCase()
+      if (key) acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+    return Object.values(urlCounts).reduce((sum, c) => sum + (c > 1 ? c - 1 : 0), 0)
+  })()
+
+  // Apply type filter first, then group by verification status
+  const typeFiltered = typeFilter === 'all' ? themes
+    : typeFilter === THEME_TYPE.COMMUNITY ? themes.filter(t => !t.user_id)
+    : themes.filter(t => !!t.user_id)
+
+  const groups = typeFiltered.reduce(
+    (acc, t) => { const s = classifyTheme(t); acc[s].push(t); return acc },
+    { verified: [], in_progress: [], pending: [] }
+  )
+  const statusOrder = [THEME_STATUS.VERIFIED, THEME_STATUS.IN_PROGRESS, THEME_STATUS.PENDING]
+  const visibleGroups = activeFilter === 'all'
+    ? statusOrder.filter((s) => groups[s].length > 0)
+    : [activeFilter]
+
+  const handleUpdated = (updated) => {
+    setThemes((prev) => prev.map((t) => t.id === updated.id ? updated : t))
+    if (selectedTheme?.id === updated.id) setSelectedTheme(updated)
+    // If user_id changed (promote to community), keep cache as-is; entry becomes unused
+  }
+
+  const handleDeleted = (id) => {
+    setThemes((prev) => prev.filter((t) => t.id !== id))
+    if (selectedTheme?.id === id) setSelectedTheme(null)
+  }
+
+  const handleBulkDeleted = (ids) => {
+    const idSet = new Set(ids)
+    setThemes((prev) => prev.filter((t) => !idSet.has(t.id)))
+    if (selectedTheme && idSet.has(selectedTheme.id)) setSelectedTheme(null)
+  }
+
+  const handleCreated = (newTheme) => {
+    setThemes(prev => [newTheme, ...prev])
+    setSelectedTheme(newTheme)
+    addLog?.('info', `Created community theme: ${newTheme.name}`)
+  }
+
+  return (
+    <div className="theme-gallery">
+      <div className="gallery-header">
+        <div className="gallery-header-text">
+          <h2 className="gallery-title"><Palette size={22} /> Themes</h2>
+          <p className="gallery-subtitle">
+            Manage and organize all leaderboard themes. Click a card to view details, edit, or run a demo render.
+          </p>
+        </div>
+        <div className="gallery-header-actions">
+          {dupCount > 0 && (
+            <button className="dup-alert-btn" onClick={() => setShowDuplicates(true)}>
+              <Copy size={14} />
+              {dupCount} duplicate{dupCount !== 1 ? 's' : ''} found
+            </button>
+          )}
+          {dupCount === 0 && !loading && (
+            <span className="no-dup-badge"><CopyCheck size={13} /> No duplicates</span>
+          )}
+          <button
+            className="add-community-theme-btn"
+            onClick={() => setShowCreateModal(true)}
+          >
+            <Plus size={15} />
+            Add Community Theme
+          </button>
+        </div>
+      </div>
+
+      {/* ── Type tabs ── */}
+      <div className="theme-type-tabs">
+        <button
+          className={`theme-type-tab ${typeFilter === 'all' ? 'active' : ''}`}
+          onClick={() => setTypeFilter('all')}
+        >
+          <Users size={14} /> All Themes
+          <span className="type-tab-count">{themes.length}</span>
+        </button>
+        <button
+          className={`theme-type-tab ${typeFilter === THEME_TYPE.COMMUNITY ? 'active community' : ''}`}
+          onClick={() => setTypeFilter(THEME_TYPE.COMMUNITY)}
+        >
+          <Globe size={14} /> Community
+          <span className="type-tab-count">{communityCount}</span>
+        </button>
+        <button
+          className={`theme-type-tab ${typeFilter === THEME_TYPE.CUSTOM ? 'active custom' : ''}`}
+          onClick={() => setTypeFilter(THEME_TYPE.CUSTOM)}
+        >
+          <Lock size={14} /> Custom (User)
+          <span className="type-tab-count">{customCount}</span>
+        </button>
+      </div>
+
+      {/* ── Status filter chips ── */}
+      <div className="gallery-filters">
+        <button className={`filter-chip ${activeFilter === 'all' ? 'active' : ''}`} onClick={() => setActiveFilter('all')}>
+          All <span className="filter-count">{typeFiltered.length}</span>
+        </button>
+        {statusOrder.map((s) => {
+          const { Icon, label, accent } = STATUS_META[s]
+          return (
+            <button key={s}
+              className={`filter-chip ${activeFilter === s ? 'active' : ''}`}
+              onClick={() => setActiveFilter(s)}
+              style={activeFilter === s ? { borderColor: accent, color: accent } : {}}>
+              <Icon size={14} /> {label}
+              <span className="filter-count">{groups[s].length}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ── Card list ── */}
+      {loading ? (
+        <div className="gallery-empty"><Loader2 size={28} className="spin" /><p>Loading themes…</p></div>
+      ) : themes.length === 0 ? (
+        <div className="gallery-empty">
+          <Palette size={36} /><h3>No themes yet</h3><p>Upload or create your first leaderboard theme.</p>
+        </div>
+      ) : typeFiltered.length === 0 ? (
+        <div className="gallery-empty">
+          <Globe size={36} />
+          <h3>No {typeFilter} themes</h3>
+          <p>Switch to "All" or a different type filter to see themes.</p>
+        </div>
+      ) : (
+        <div className="gallery-groups">
+          {visibleGroups.length === 0 ? (
+            <div className="gallery-empty"><AlertCircle size={32} /><p>No themes match this filter.</p></div>
+          ) : visibleGroups.map((statusKey) => {
+            const { Icon, accent, bg, description, label } = STATUS_META[statusKey]
+            const items = groups[statusKey]
+            return (
+              <section key={statusKey} className="status-group">
+                <header className="status-group-header" style={{ borderLeftColor: accent, background: bg }}>
+                  <div className="status-group-title">
+                    <Icon size={18} color={accent} />
+                    <h3 style={{ color: accent }}>{label}<span className="status-group-count">{items.length}</span></h3>
+                  </div>
+                  <p className="status-group-desc">{description}</p>
+                </header>
+                <div className="theme-card-grid">
+                  {items.map((theme) => {
+                    const isBroken   = imageErrors[theme.id]
+                    const cardMeta   = STATUS_META[classifyTheme(theme)]
+                    const tType      = getThemeType(theme)
+                    const tTypeMeta  = TYPE_META[tType]
+                    const TTypeIcon  = tTypeMeta.Icon
+                    const hasMapping = theme.mapping_config?.cells?.some(
+                      (c) => Object.values(c).some((f) => f && (f.x || f.y))
+                    )
+                    const ownerProfile = theme.user_id ? ownerCache[theme.user_id] : null
+                    const ownerLabel   = ownerProfile
+                      ? (ownerProfile.display_name || ownerProfile.username || ownerProfile.emails || `#${theme.user_id.slice(0, 6)}`)
+                      : null
+
+                    return (
+                      <article key={theme.id}
+                        className={`theme-card status-${statusKey} theme-card-clickable`}
+                        onClick={() => setSelectedTheme(theme)}>
+                        <div className="theme-card-thumb" style={{ borderTopColor: cardMeta.accent }}>
+                          {isBroken || !theme.url ? (
+                            <div className="theme-card-fallback"><ImageIcon size={28} /><span>{theme.name || 'No Preview'}</span></div>
+                          ) : (
+                            <img src={theme.url} alt={theme.name || theme.id} loading="lazy"
+                              onError={() => setImageErrors((p) => ({ ...p, [theme.id]: true }))} />
+                          )}
+                          <span className="theme-card-badge" style={{ background: cardMeta.accent }}>{cardMeta.label}</span>
+                          {/* Type pill on thumb */}
+                          <span className={`theme-card-type-pill ${tTypeMeta.chipClass}`}>
+                            <TTypeIcon size={10} /> {tTypeMeta.label}
+                          </span>
+                          <div className="theme-card-hover-overlay"><Eye size={20} /><span>View Details</span></div>
+                        </div>
+                        <div className="theme-card-body">
+                          <h4 className="theme-card-name">{theme.name || `Theme #${theme.id.slice(-4)}`}</h4>
+                          <div className="theme-card-meta">
+                            <span>Updated {formatDate(theme.updated_at || theme.created_at)}</span>
+                            {/* Owner chip or community label */}
+                            {tType === THEME_TYPE.COMMUNITY ? (
+                              <span className="card-owner-chip community"><Globe size={10} /> Community</span>
+                            ) : ownerLabel ? (
+                              <span className="card-owner-chip custom" title={`Owner: ${ownerLabel}`}>
+                                <User size={10} /> {ownerLabel.length > 18 ? ownerLabel.slice(0, 16) + '…' : ownerLabel}
+                              </span>
+                            ) : (
+                              <span className="card-owner-chip custom faded"><User size={10} /> #{theme.user_id?.slice(0, 6)}</span>
+                            )}
+                          </div>
+                          <div className="theme-card-footer-row">
+                            {hasMapping
+                              ? <span className="theme-card-mapping-badge mapped"><CheckCircle2 size={11} /> Mapping ready</span>
+                              : <span className="theme-card-mapping-badge unmapped"><AlertCircle size={11} /> No mapping</span>}
+                            <span className="theme-card-demo-hint"><Play size={11} /> Demo</span>
+                          </div>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+              </section>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Drawer */}
+      {selectedTheme && (
+        <ThemeDetailDrawer
+          theme={selectedTheme}
+          onClose={() => setSelectedTheme(null)}
+          onUpdated={handleUpdated}
+          onDeleted={handleDeleted}
+        />
+      )}
+
+      {/* Duplicates panel */}
+      {showDuplicates && (
+        <DuplicatesPanel
+          themes={themes}
+          onClose={() => setShowDuplicates(false)}
+          onDeleted={handleBulkDeleted}
+        />
+      )}
+
+      {/* Create community theme modal */}
+      {showCreateModal && (
+        <CreateCommunityThemeModal
+          onClose={() => setShowCreateModal(false)}
+          onCreated={handleCreated}
+        />
+      )}
+    </div>
+  )
+}
 
 export default ThemeBuilderView
