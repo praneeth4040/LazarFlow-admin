@@ -4,24 +4,26 @@ import {
   Users, Trophy, LayoutDashboard, Bell, Palette,
   LogOut, CheckCircle2, XCircle, Search, ChevronRight,
   Shield, Settings, User as UserIcon, Home, Sliders,
-  FileSearch, CornerDownLeft, RefreshCcw,
+  FileSearch, CornerDownLeft, RefreshCcw, Cpu, Activity,
 } from 'lucide-react'
 
 import StatsView from './views/DashboardHome'
 import { UserListView, UserDetailView } from './views/UsersView'
 import { GlobalTournamentListView, TournamentTeamsView } from './views/TournamentsView'
 import NotificationsView from './views/NotificationsView'
+import OCRJobsView from './views/OCRJobsView'
 import ThemeBuilderView from './theme-builder/ThemeBuilderView'
+import ServicesView from './views/ServicesView'
 
 import './Dashboard.css'
 
-const SUBSCRIPTION_TIERS = ['free', 'ranked', 'competitive', 'premier', 'developer']
-
 const NAV_ITEMS = [
   { key: 'overview',      icon: Home,            label: 'Overview',       shortcut: 'G O' },
+  { key: 'services',      icon: Activity,        label: 'Services',       shortcut: 'G S' },
   { key: 'users',         icon: Users,           label: 'Users',          shortcut: 'G U' },
   { key: 'tournaments',   icon: Trophy,          label: 'Tournaments',    shortcut: 'G T' },
   { key: 'notifications', icon: Bell,            label: 'Notifications',  shortcut: 'G N' },
+  { key: 'jobs',          icon: Cpu,             label: 'OCR Jobs',       shortcut: 'G P' },
   { key: 'themes',        icon: Palette,         label: 'Themes',         shortcut: 'G M' },
 ]
 
@@ -215,6 +217,7 @@ const Dashboard = ({ user, onLogout }) => {
           else if (k === 'u') next = 'users'
           else if (k === 't') next = 'tournaments'
           else if (k === 'n') next = 'notifications'
+          else if (k === 'p') next = 'jobs'
           else if (k === 'm') next = 'themes'
           if (next) { setActiveTab(next); setSelectedUser(null); setSelectedTournament(null) }
           window.removeEventListener('keydown', sub)
@@ -274,27 +277,38 @@ const Dashboard = ({ user, onLogout }) => {
       const { count: activeLobbiesCount, error: actErr } = await supabase.from('lobbies').select('*', { count: 'exact', head: true }).eq('status', 'active')
       if (actErr) console.warn('[stats] active lobbies count failed:', actErr.message)
 
-      // Try subscription_tier; fall back to free-only distribution if column missing
-      let tierDistribution = { free: usersCount || 0 }
+      // Calculate flux_balance credit distribution & total credits
+      let creditDistribution = { '0 Credits': 0, '1 - 50': 0, '51 - 200': 0, '201 - 1,000': 0, '1,000+': 0 }
+      let totalSystemCredits = 0
+      let totalAdsWatched = 0
+
       try {
-        const { data: profiles, error: tierErr } = await supabase.from('profiles').select('id, subscription_tier')
-        if (!tierErr && Array.isArray(profiles)) {
-          tierDistribution = profiles.reduce((acc, p) => {
-            const tier = p.subscription_tier || 'free'
-            acc[tier] = (acc[tier] || 0) + 1
-            return acc
-          }, {})
+        const { data: profiles, error: credErr } = await supabase.from('profiles').select('id, flux_balance, ads_watched_count')
+        if (!credErr && Array.isArray(profiles)) {
+          profiles.forEach(p => {
+            const bal = parseFloat(p.flux_balance || 0)
+            const ads = p.ads_watched_count || 0
+            totalSystemCredits += bal
+            totalAdsWatched += ads
+
+            if (bal === 0) creditDistribution['0 Credits'] += 1
+            else if (bal <= 50) creditDistribution['1 - 50'] += 1
+            else if (bal <= 200) creditDistribution['51 - 200'] += 1
+            else if (bal <= 1000) creditDistribution['201 - 1,000'] += 1
+            else creditDistribution['1,000+'] += 1
+          })
         }
-        // Silently ignore column-not-found (400) errors — tierDistribution stays as fallback
       } catch (_subErr) {
-        // swallow — tierDistribution already holds fallback
+        // swallow
       }
 
       setStats({
         totalUsers: usersCount || 0,
         totalTournaments: lobbiesCount || 0,
         activeTournaments: activeLobbiesCount || 0,
-        tierDistribution,
+        creditDistribution,
+        totalSystemCredits,
+        totalAdsWatched,
       })
     } catch (err) {
       console.error('[stats] top-level error:', err.message)
@@ -340,14 +354,14 @@ const Dashboard = ({ user, onLogout }) => {
     ))
   }
 
-  const updateSubscriptionTier = async (userId, newTier) => {
+  const updateFluxBalance = async (userId, newBalance) => {
     setUpdating(userId); setError(''); setSuccess('')
     try {
-      const { error } = await supabase.from('profiles').update({ subscription_tier: newTier }).eq('id', userId)
-      if (error) { setError(`Failed to update subscription: ${error.message}`) }
+      const { error } = await supabase.from('profiles').update({ flux_balance: newBalance }).eq('id', userId)
+      if (error) { setError(`Failed to update credit balance: ${error.message}`) }
       else {
-        setSuccess('Subscription tier updated successfully')
-        setUsers(prev => prev.map(u => u.id === userId ? { ...u, subscription_tier: newTier } : u))
+        setSuccess(`Credit balance updated to ${newBalance.toLocaleString()} Flux Credits`)
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, flux_balance: newBalance } : u))
         fetchStats()
         setTimeout(() => setSuccess(''), 3000)
       }
@@ -458,6 +472,7 @@ const Dashboard = ({ user, onLogout }) => {
               key === 'notifications' ? 3 :
               key === 'themes' ? pendingThemesCount :
               key === 'users' ? (stats.totalUsers > 999 ? '999+' : stats.totalUsers || null) :
+              key === 'jobs' ? 'OCR' :
               null
             return (
               <button
@@ -609,7 +624,9 @@ const Dashboard = ({ user, onLogout }) => {
               onBack={handleBackToUsers} onViewTeams={handleViewTournamentTeams}
             />
           ) : activeTab === 'overview' ? (
-            <StatsView stats={stats} loading={loadingStats} />
+            <StatsView stats={stats} loading={loadingStats} onNavigate={handleNavigate} />
+          ) : activeTab === 'services' ? (
+            <ServicesView />
           ) : activeTab === 'tournaments' ? (
             <GlobalTournamentListView
               tournaments={allTournaments} loading={loadingAllTournaments}
@@ -617,14 +634,16 @@ const Dashboard = ({ user, onLogout }) => {
             />
           ) : activeTab === 'notifications' ? (
             <NotificationsView />
+          ) : activeTab === 'jobs' ? (
+            <OCRJobsView addLog={addLog} />
           ) : activeTab === 'themes' ? (
             <ThemeBuilderView addLog={addLog} />
           ) : (
             <UserListView
               users={users} filteredUsers={filteredUsers}
               searchQuery={searchQuery} setSearchQuery={setSearchQuery}
-              updating={updating} SUBSCRIPTION_TIERS={SUBSCRIPTION_TIERS}
-              updateSubscriptionTier={updateSubscriptionTier}
+              updating={updating}
+              updateFluxBalance={updateFluxBalance}
               onViewUserDetails={handleViewUserDetails}
               loading={loadingUsers}
             />

@@ -154,19 +154,26 @@ export const getFontFamily = (fontPath) => {
   return `"${base}", sans-serif`
 }
 
+// Default cell entry for a single row×column slot
+const EMPTY_CELL = (alignment = 'center') => ({ x: 0, y: 0, alignment })
+
+// Build a blank 12-row cells array
+const makeEmptyCells = () =>
+  Array.from({ length: 12 }, () => ({
+    rank:  EMPTY_CELL('center'),
+    team:  EMPTY_CELL('left'),
+    w:     EMPTY_CELL('center'),
+    pp:    EMPTY_CELL('center'),
+    kp:    EMPTY_CELL('center'),
+    total: EMPTY_CELL('center'),
+    mp:    EMPTY_CELL('center'),
+  }))
+
 export const EMPTY_MAPPING_CONFIG = {
-  // New schema: cells is an object keyed by field name.
-  // Each field has a single x/y position (shared across all rows) +
-  // optional row_overrides for per-row font_size, color_rgb, font_path.
-  cells: {
-    w:     { x: 0, y: 0, alignment: 'center' },
-    kp:    { x: 0, y: 0, alignment: 'center' },
-    pp:    { x: 0, y: 0, alignment: 'center' },
-    rank:  { x: 0, y: 0, alignment: 'center' },
-    team:  { x: 0, y: 0, alignment: 'left' },
-    total: { x: 0, y: 0, alignment: 'center' },
-    mp:    { x: 0, y: 0, alignment: 'center' },
-  },
+  // Schema: cells is an array of 12 row objects.
+  // Each row object is keyed by column name → { x, y, alignment, font_size?, font_path?, color_rgb? }
+  // skipped: true can be added per-cell to exclude it from rendering.
+  cells: makeEmptyCells(),
   scoreboard: {
     color_rgb: [255, 255, 255],
     font_path: 'Anton-Regular.ttf',
@@ -200,3 +207,54 @@ export const DUMMY_TEAMS = [
   { rank: '11', team: 'LAMBDA L',     w: '0', pp: '1',  kp: '2',  total: '3',  mp: '2' },
   { rank: '12', team: 'MU RAIDERS',   w: '0', pp: '0',  kp: '1',  total: '1',  mp: '1' },
 ]
+
+// ── Font metrics cache ──────────────────────────────────────────────────────
+// Fetched from /api/render/font-metrics and cached in memory for the session.
+// Shape: { "Anton-Regular.ttf": { ascender, descender, units_per_em } }
+const _fontMetricsCache = {}
+let _fontMetricsFetchPromise = null
+
+/**
+ * Fetch font metrics for a list of font filenames from the backend.
+ * Results are merged into the in-memory cache.
+ * Returns the cache after the fetch completes.
+ */
+export const fetchFontMetrics = async (fontPaths = []) => {
+  // Deduplicate and filter to only .ttf files not already cached
+  const needed = [...new Set(fontPaths.filter(f => f && typeof f === 'string' && f.endsWith('.ttf') && !_fontMetricsCache[f]))]
+  if (needed.length === 0) return _fontMetricsCache
+
+  try {
+    const res = await fetch(`/api/render/font-metrics?fonts=${needed.join(',')}`)
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`
+      try { const j = await res.json(); detail = j.detail || j.error || detail } catch (_) {}
+      console.warn('[font-metrics] fetch failed:', detail)
+      return _fontMetricsCache
+    }
+    const data = await res.json()
+    Object.assign(_fontMetricsCache, data)
+    console.debug('[font-metrics] loaded:', Object.keys(data))
+  } catch (err) {
+    console.warn('[font-metrics] fetch error:', err?.message || err)
+  }
+  return _fontMetricsCache
+}
+
+/**
+ * Given font metrics for a specific font, compute how many display-pixels
+ * the CSS top needs to shift UP to match PIL's "la" (left-ascender) anchor.
+ *
+ * PIL places Y at the ascender line. CSS `top` with `lineHeight:1` places Y
+ * at the top of the em square. The em square top is higher than the ascender
+ * by: (units_per_em - ascender) / units_per_em * fontSizePx
+ *
+ * We subtract this value from the CSS top to push the text down to match PIL.
+ */
+export const getYCorrection = (fontPath, fontSizePx) => {
+  const metrics = _fontMetricsCache[fontPath]
+  if (!metrics) return 0
+  const { ascender, units_per_em } = metrics
+  if (!units_per_em || !ascender) return 0
+  return ((units_per_em - ascender) / units_per_em) * fontSizePx
+}
