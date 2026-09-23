@@ -461,7 +461,7 @@ const ThemeDetailDrawer = ({ theme: initialTheme, onClose, onUpdated, onDeleted 
     if (!selectedLobby) return
     setRendering(true); setRenderError(''); setRenderedUrl(null)
     try {
-      const res = await fetch('/api/render/render-results', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/render/render-results`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

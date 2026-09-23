@@ -1070,7 +1070,7 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
           k, k === 'lazarflow-watermark' ? 'lazarflow.app' : '',
         ])
       )
-      const res = await fetch('/api/render/preview-render', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/render/preview-render`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

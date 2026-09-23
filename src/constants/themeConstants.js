@@ -225,7 +225,7 @@ export const fetchFontMetrics = async (fontPaths = []) => {
   if (needed.length === 0) return _fontMetricsCache
 
   try {
-    const res = await fetch(`/api/render/font-metrics?fonts=${needed.join(',')}`)
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/render/font-metrics?fonts=${needed.join(',')}`)
     if (!res.ok) {
       let detail = `HTTP ${res.status}`
       try { const j = await res.json(); detail = j.detail || j.error || detail } catch (_) {}

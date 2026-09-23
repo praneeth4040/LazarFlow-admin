@@ -85,7 +85,7 @@ const NotificationsView = () => {
       const payload = { user_ids: finalUserIds, title: title.trim() || undefined, message: message.trim() }
       addLog('request', 'POST /api/notifications/send-test', payload)
 
-      const response = await fetch('/api/notifications/send-test', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/notifications/send-test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
