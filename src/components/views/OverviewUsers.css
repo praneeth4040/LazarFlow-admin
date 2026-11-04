@@ -1,0 +1,649 @@
+/* ════════════════════════════════════════════════════════
+   Overview — users directory (left column)
+   ════════════════════════════════════════════════════════ */
+
+.ovu-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.06), 0 14px 34px -30px rgba(60, 64, 67, 0.55);
+  overflow: hidden;
+}
+
+/* ── Header ── */
+
+.ovu-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+}
+
+.ovu-head-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ovu-head-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--primary-light);
+  color: var(--primary-hover);
+}
+
+.ovu-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--text-primary);
+}
+
+.ovu-head p {
+  margin: 1px 0 0;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
+.ovu-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ovu-open:hover {
+  background: var(--primary-light);
+  border-color: rgba(26, 115, 232, 0.28);
+  color: var(--primary-hover);
+}
+
+/* ── Toolbar ── */
+
+.ovu-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 20px 12px;
+}
+
+.ovu-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ovu-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.ovu-search input {
+  width: 100%;
+  padding: 8px 32px 8px 30px;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.ovu-search input::placeholder {
+  color: var(--text-disabled);
+}
+
+.ovu-search input:focus {
+  outline: none;
+  background: var(--bg-surface);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.12);
+}
+
+.ovu-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.ovu-search-clear {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.ovu-search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ovu-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.ovu-select {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.ovu-select:hover {
+  border-color: var(--text-disabled);
+}
+
+.ovu-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.12);
+}
+
+/* ── Summary ── */
+
+.ovu-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 20px 10px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.ovu-summary strong {
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ovu-hint {
+  color: var(--text-disabled);
+}
+
+.ovu-clear {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary-hover);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ovu-clear:hover {
+  text-decoration: underline;
+}
+
+/* ── Column headers ── */
+
+.ovu-list-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px 80px 92px 16px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 20px;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+}
+
+.ovu-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-tertiary);
+  font-family: inherit;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ovu-sort:hover {
+  color: var(--text-secondary);
+}
+
+.ovu-sort.is-active {
+  color: var(--primary-hover);
+}
+
+.ovu-sort-idle {
+  opacity: 0.4;
+}
+
+/* ── Rows ── */
+
+.ovu-scroll {
+  max-height: 430px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Give an opened detail room to breathe instead of clipping it. */
+.ovu-scroll.has-open {
+  max-height: 760px;
+}
+
+.ovu-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px 80px 92px 16px;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.ovu-row:hover {
+  background: var(--bg-hover);
+}
+
+.ovu-row.is-open {
+  background: rgba(26, 115, 232, 0.05);
+}
+
+.ovu-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.ovu-user {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.ovu-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ovu-avatar.t0 { background: #e8f0fe; color: #1a73e8; }
+.ovu-avatar.t1 { background: #fef7e0; color: #b06000; }
+.ovu-avatar.t2 { background: #e6f4ea; color: #188038; }
+.ovu-avatar.t3 { background: #f3e8fd; color: #7c3aed; }
+.ovu-avatar.t4 { background: #fce8e6; color: #c5221f; }
+.ovu-avatar.t5 { background: #e0f2f1; color: #0f766e; }
+
+.ovu-user-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ovu-email {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ovu-handle {
+  overflow: hidden;
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ovu-plan {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ovu-plan-badge {
+  padding: 2px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-alt);
+  color: var(--text-tertiary);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ovu-plan-badge.paid {
+  border-color: rgba(124, 58, 237, 0.18);
+  background: rgba(124, 58, 237, 0.1);
+  color: #6d28d9;
+}
+
+.ovu-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.ovu-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.ovu-status.ok { color: var(--success); }
+.ovu-status.warn { color: var(--warning); }
+.ovu-status.info { color: var(--primary-hover); }
+.ovu-status.muted { color: var(--text-tertiary); }
+
+.ovu-joined,
+.ovu-lobby {
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ovu-lobby.is-empty {
+  color: var(--text-disabled);
+}
+
+.ovu-chevron {
+  justify-self: end;
+  color: var(--text-tertiary);
+  transition: transform 0.18s ease;
+}
+
+.ovu-row.is-open .ovu-chevron {
+  transform: rotate(180deg);
+}
+
+/* ── Expanded detail ── */
+
+.ovu-detail {
+  padding: 14px 20px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: #fafbfd;
+}
+
+.ovu-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 18px;
+}
+
+.ovu-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ovu-field-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.ovu-field-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.ovu-field-value.is-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+.ovu-detail-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-default);
+}
+
+.ovu-detail-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.ovu-detail-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary-hover);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ovu-detail-open:hover {
+  text-decoration: underline;
+}
+
+/* ── Empty + skeleton ── */
+
+.ovu-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 34px 20px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.ovu-empty strong {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.ovu-empty p {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+
+.ovu-skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+
+.ovu-sk-user {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.ovu-sk {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.14) 25%,
+    rgba(148, 163, 184, 0.28) 37%,
+    rgba(148, 163, 184, 0.14) 63%
+  );
+  background-size: 400% 100%;
+  animation: ovu-shimmer 1.4s ease infinite;
+}
+
+.ovu-sk-avatar {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+
+.ovu-sk-line {
+  width: 70%;
+  height: 10px;
+}
+
+.ovu-sk-pill {
+  width: 46px;
+  height: 14px;
+  border-radius: var(--radius-pill);
+}
+
+.ovu-sk-date {
+  width: 60px;
+  height: 9px;
+}
+
+@keyframes ovu-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0 0; }
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 680px) {
+  .ovu-head {
+    padding: 16px 16px 12px;
+  }
+
+  .ovu-toolbar {
+    padding: 0 16px 10px;
+  }
+
+  .ovu-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ovu-summary {
+    padding: 0 16px 10px;
+  }
+
+  .ovu-hint {
+    display: none;
+  }
+
+  .ovu-list-head {
+    display: none;
+  }
+
+  .ovu-row {
+    grid-template-columns: minmax(0, 1fr) 16px;
+    grid-template-areas:
+      "user chev"
+      "plan plan"
+      "joined lobby";
+    row-gap: 7px;
+    padding: 12px 16px;
+  }
+
+  .ovu-user { grid-area: user; }
+  .ovu-plan { grid-area: plan; flex-direction: row; align-items: center; gap: 8px; }
+  .ovu-joined { grid-area: joined; }
+  .ovu-lobby { grid-area: lobby; justify-self: end; }
+  .ovu-chevron { grid-area: chev; }
+
+  .ovu-joined::before {
+    content: 'Joined ';
+    color: var(--text-tertiary);
+  }
+
+  .ovu-lobby::before {
+    content: 'Last lobby ';
+    color: var(--text-tertiary);
+  }
+
+  .ovu-detail {
+    padding: 12px 16px 14px;
+  }
+
+  .ovu-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ovu-scroll {
+    max-height: 520px;
+  }
+
+  .ovu-scroll.has-open {
+    max-height: 80vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ovu-row,
+  .ovu-chevron,
+  .ovu-sk {
+    transition: none;
+    animation: none;
+  }
+}

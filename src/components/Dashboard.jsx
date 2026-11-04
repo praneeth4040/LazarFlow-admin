@@ -1,30 +1,35 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, Fragment } from 'react'
 import { supabase } from '../lib/supabase'
 import {
-  Users, Trophy, LayoutDashboard, Bell, Palette,
-  LogOut, CheckCircle2, XCircle, Search, ChevronRight,
+  Users, Gamepad2, Bell, Palette,
+  LogOut, CheckCircle2, Search, ChevronRight,
   Shield, Settings, User as UserIcon, Home, Sliders,
-  FileSearch, CornerDownLeft, RefreshCcw, Cpu, Activity,
+  RefreshCcw, Cpu, Activity, IndianRupee, ScrollText,
 } from 'lucide-react'
+import logoImg from '../assets/logo.jpeg'
 
-import StatsView from './views/DashboardHome'
-import { UserListView, UserDetailView } from './views/UsersView'
-import { GlobalTournamentListView, TournamentTeamsView } from './views/TournamentsView'
+import OverviewView from './views/OverviewView'
+import RevenueView from './views/RevenueView'
+import UsersView from './views/UsersView'
+import LobbiesView from './views/LobbiesView'
 import NotificationsView from './views/NotificationsView'
 import OCRJobsView from './views/OCRJobsView'
+import LogsView from './views/LogsView'
 import ThemeBuilderView from './theme-builder/ThemeBuilderView'
 import ServicesView from './views/ServicesView'
 
 import './Dashboard.css'
 
 const NAV_ITEMS = [
-  { key: 'overview',      icon: Home,            label: 'Overview',       shortcut: 'G O' },
-  { key: 'services',      icon: Activity,        label: 'Services',       shortcut: 'G S' },
-  { key: 'users',         icon: Users,           label: 'Users',          shortcut: 'G U' },
-  { key: 'tournaments',   icon: Trophy,          label: 'Tournaments',    shortcut: 'G T' },
-  { key: 'notifications', icon: Bell,            label: 'Notifications',  shortcut: 'G N' },
-  { key: 'jobs',          icon: Cpu,             label: 'OCR Jobs',       shortcut: 'G P' },
-  { key: 'themes',        icon: Palette,         label: 'Themes',         shortcut: 'G M' },
+  { key: 'overview',      icon: Home,        label: 'Overview',      shortcut: 'G O', group: 'Platform' },
+  { key: 'revenue',       icon: IndianRupee, label: 'Revenue',       shortcut: 'G R', group: 'Platform' },
+  { key: 'users',         icon: Users,       label: 'Users',         shortcut: 'G U', group: 'Platform' },
+  { key: 'lobbies',       icon: Gamepad2,    label: 'Lobbies',       shortcut: 'G L', group: 'Platform' },
+  { key: 'services',      icon: Activity,    label: 'Services',      shortcut: 'G S', group: 'Operations' },
+  { key: 'notifications', icon: Bell,        label: 'Notifications', shortcut: 'G N', group: 'Operations' },
+  { key: 'jobs',          icon: Cpu,         label: 'OCR Jobs',      shortcut: 'G P', group: 'Operations' },
+  { key: 'logs',          icon: ScrollText,  label: 'Logs',          shortcut: 'G G', group: 'Operations' },
+  { key: 'themes',        icon: Palette,     label: 'Themes',        shortcut: 'G M', group: 'Studio' },
 ]
 
 const CommandPalette = ({ open, onClose, onNavigate, onRefresh }) => {
@@ -46,7 +51,7 @@ const CommandPalette = ({ open, onClose, onNavigate, onRefresh }) => {
       {
         id: 'refresh', type: 'action',
         label: 'Refresh Dashboard',
-        sub: 'Reload users, tournaments and statistics',
+        sub: 'Reload dashboard data',
         icon: RefreshCcw, shortcut: 'R',
         action: () => onRefresh(),
       },
@@ -150,28 +155,16 @@ const CommandPalette = ({ open, onClose, onNavigate, onRefresh }) => {
 const Dashboard = ({ user, onLogout }) => {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [users, setUsers] = useState([])
-  const [filteredUsers, setFilteredUsers] = useState([])
-  const [searchQuery, setSearchQuery] = useState('')
-  const [updating, setUpdating] = useState(null)
-  const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [selectedUser, setSelectedUser] = useState(null)
-  const [userTournaments, setUserTournaments] = useState([])
-  const [loadingTournaments, setLoadingTournaments] = useState(false)
-  const [selectedTournament, setSelectedTournament] = useState(null)
-  const [tournamentTeams, setTournamentTeams] = useState([])
-  const [loadingTeams, setLoadingTeams] = useState(false)
-  const [loadingUsers, setLoadingUsers] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
   const [activityLogs, setActivityLogs] = useState([])
-  const [allTournaments, setAllTournaments] = useState([])
-  const [loadingAllTournaments, setLoadingAllTournaments] = useState(false)
-  const [stats, setStats] = useState({ totalUsers: 0, totalTournaments: 0, activeTournaments: 0, tierDistribution: {} })
-  const [loadingStats, setLoadingStats] = useState(false)
+  const [lobbyFocusId, setLobbyFocusId] = useState(null)
+  const [userQuery, setUserQuery] = useState('')
 
   const [profileOpen, setProfileOpen] = useState(false)
   const [cmdOpen, setCmdOpen] = useState(false)
+  const [overviewRefreshKey, setOverviewRefreshKey] = useState(0)
+  const [dataRefreshKey, setDataRefreshKey] = useState(0)
   const profileRef = useRef(null)
 
   const addLog = (type, message, details = null) => {
@@ -183,22 +176,16 @@ const Dashboard = ({ user, onLogout }) => {
   }
 
   const refreshAll = () => {
-    fetchUsers()
-    fetchStats()
-    fetchAllTournaments()
     fetchProfile()
+    setOverviewRefreshKey(k => k + 1)
+    setDataRefreshKey(k => k + 1)
     setSuccess('Dashboard refreshed')
     setTimeout(() => setSuccess(''), 2000)
   }
 
   useEffect(() => {
     fetchProfile()
-    fetchUsers()
-    fetchStats()
-    fetchAllTournaments()
   }, [user])
-
-  useEffect(() => { filterUsers() }, [searchQuery, users])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -214,12 +201,18 @@ const Dashboard = ({ user, onLogout }) => {
         const sub = (ev) => {
           const k = ev.key.toLowerCase()
           if (k === 'o') next = 'overview'
+          else if (k === 'r') next = 'revenue'
+          else if (k === 'g') next = 'logs'
           else if (k === 'u') next = 'users'
-          else if (k === 't') next = 'tournaments'
+          else if (k === 'l') next = 'lobbies'
           else if (k === 'n') next = 'notifications'
           else if (k === 'p') next = 'jobs'
           else if (k === 'm') next = 'themes'
-          if (next) { setActiveTab(next); setSelectedUser(null); setSelectedTournament(null) }
+          if (next) {
+            setActiveTab(next)
+            setLobbyFocusId(null)
+            setUserQuery('')
+          }
           window.removeEventListener('keydown', sub)
           clearTimeout(wait)
         }
@@ -251,171 +244,29 @@ const Dashboard = ({ user, onLogout }) => {
     }
   }
 
-  const fetchUsers = async () => {
-    setLoadingUsers(true)
-    try {
-      const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
-      if (error) throw error
-      setUsers(data || [])
-      setFilteredUsers(data || [])
-    } catch (err) {
-      setError('Failed to load users: ' + err.message)
-    } finally {
-      setLoadingUsers(false)
-    }
-  }
-
-  const fetchStats = async () => {
-    setLoadingStats(true)
-    try {
-      const { count: usersCount, error: usersErr } = await supabase.from('profiles').select('*', { count: 'exact', head: true })
-      if (usersErr) console.warn('[stats] users count failed:', usersErr.message)
-
-      const { count: lobbiesCount, error: lobErr } = await supabase.from('lobbies').select('*', { count: 'exact', head: true })
-      if (lobErr) console.warn('[stats] lobbies count failed:', lobErr.message)
-
-      const { count: activeLobbiesCount, error: actErr } = await supabase.from('lobbies').select('*', { count: 'exact', head: true }).eq('status', 'active')
-      if (actErr) console.warn('[stats] active lobbies count failed:', actErr.message)
-
-      // Calculate flux_balance credit distribution & total credits
-      let creditDistribution = { '0 Credits': 0, '1 - 50': 0, '51 - 200': 0, '201 - 1,000': 0, '1,000+': 0 }
-      let totalSystemCredits = 0
-      let totalAdsWatched = 0
-
-      try {
-        const { data: profiles, error: credErr } = await supabase.from('profiles').select('id, flux_balance, ads_watched_count')
-        if (!credErr && Array.isArray(profiles)) {
-          profiles.forEach(p => {
-            const bal = parseFloat(p.flux_balance || 0)
-            const ads = p.ads_watched_count || 0
-            totalSystemCredits += bal
-            totalAdsWatched += ads
-
-            if (bal === 0) creditDistribution['0 Credits'] += 1
-            else if (bal <= 50) creditDistribution['1 - 50'] += 1
-            else if (bal <= 200) creditDistribution['51 - 200'] += 1
-            else if (bal <= 1000) creditDistribution['201 - 1,000'] += 1
-            else creditDistribution['1,000+'] += 1
-          })
-        }
-      } catch (_subErr) {
-        // swallow
-      }
-
-      setStats({
-        totalUsers: usersCount || 0,
-        totalTournaments: lobbiesCount || 0,
-        activeTournaments: activeLobbiesCount || 0,
-        creditDistribution,
-        totalSystemCredits,
-        totalAdsWatched,
-      })
-    } catch (err) {
-      console.error('[stats] top-level error:', err.message)
-      setError('Failed to load dashboard statistics')
-    } finally {
-      setLoadingStats(false)
-    }
-  }
-
-  const fetchAllTournaments = async () => {
-    setLoadingAllTournaments(true)
-    try {
-      const { data: lobbies, error: lobbiesError } = await supabase.from('lobbies').select('*').order('created_at', { ascending: false })
-      if (lobbiesError) throw lobbiesError
-      if (!lobbies || lobbies.length === 0) { setAllTournaments([]); return }
-
-      const userIds = [...new Set(lobbies.map(l => l.user_id).filter(Boolean))]
-      const { data: profiles } = await supabase.from('profiles').select('id, username').in('id', userIds)
-      const profileMap = (profiles || []).reduce((acc, p) => { acc[p.id] = p; return acc }, {})
-
-      const lobbiesWithDetails = await Promise.all(
-        lobbies.map(async (lobby) => {
-          const { count: teamCount } = await supabase
-            .from('lobby_teams').select('*', { count: 'exact', head: true }).eq('lobby_id', lobby.id)
-          return { ...lobby, teams_count: teamCount || 0, profiles: profileMap[lobby.user_id] || null }
-        })
-      )
-      setAllTournaments(lobbiesWithDetails)
-    } catch (err) {
-      setError('Failed to load global lobbies')
-    } finally {
-      setLoadingAllTournaments(false)
-    }
-  }
-
-  const filterUsers = () => {
-    if (!searchQuery.trim()) { setFilteredUsers(users); return }
-    const q = searchQuery.toLowerCase()
-    setFilteredUsers(users.filter(u =>
-      u.emails?.toLowerCase().includes(q) ||
-      u.display_name?.toLowerCase().includes(q) ||
-      u.username?.toLowerCase().includes(q)
-    ))
-  }
-
-  const updateFluxBalance = async (userId, newBalance) => {
-    setUpdating(userId); setError(''); setSuccess('')
-    try {
-      const { error } = await supabase.from('profiles').update({ flux_balance: newBalance }).eq('id', userId)
-      if (error) { setError(`Failed to update credit balance: ${error.message}`) }
-      else {
-        setSuccess(`Credit balance updated to ${newBalance.toLocaleString()} Flux Credits`)
-        setUsers(prev => prev.map(u => u.id === userId ? { ...u, flux_balance: newBalance } : u))
-        fetchStats()
-        setTimeout(() => setSuccess(''), 3000)
-      }
-    } catch (err) {
-      setError('An unexpected error occurred')
-    } finally {
-      setUpdating(null)
-    }
-  }
-
-  const fetchUserTournaments = async (userId) => {
-    setLoadingTournaments(true); setError('')
-    try {
-      const { data: lobbies, error: lobbiesError } = await supabase
-        .from('lobbies').select('*').eq('user_id', userId).order('created_at', { ascending: false })
-      if (lobbiesError) { setError('Failed to load user lobbies'); setLoadingTournaments(false); return }
-      const lobbiesWithTeams = await Promise.all((lobbies || []).map(async (lobby) => {
-        const { count: teamCount } = await supabase
-          .from('lobby_teams').select('*', { count: 'exact', head: true }).eq('lobby_id', lobby.id)
-        return { ...lobby, teams_count: teamCount || 0 }
-      }))
-      setUserTournaments(lobbiesWithTeams)
-    } catch (err) {
-      setError('Failed to load user lobbies')
-    } finally {
-      setLoadingTournaments(false)
-    }
-  }
-
-  const fetchTournamentTeams = async (tournamentId) => {
-    setLoadingTeams(true); setError('')
-    try {
-      const { data: teams, error: teamsError } = await supabase
-        .from('lobby_teams').select('*').eq('lobby_id', tournamentId).order('created_at', { ascending: false })
-      if (teamsError) { setError('Failed to load lobby teams'); setLoadingTeams(false); return }
-      setTournamentTeams(teams || [])
-      return teams || []
-    } catch (err) {
-      setError('Failed to load lobby teams')
-    } finally {
-      setLoadingTeams(false)
-    }
-  }
-
   const handleNavigate = (key) => {
     setActiveTab(key)
-    setSelectedUser(null)
-    setSelectedTournament(null)
+    setLobbyFocusId(null)
+    setUserQuery('')
   }
 
-  const handleViewUserDetails = async (u) => { setSelectedUser(u); await fetchUserTournaments(u.id) }
-  const handleViewTournamentTeams = async (t) => { setSelectedTournament(t); await fetchTournamentTeams(t.id) }
-  const handleBackToUsers = () => { setSelectedUser(null); setUserTournaments([]) }
-  const handleBackToTournaments = () => { setSelectedTournament(null); setTournamentTeams([]) }
+  const handleOpenLobbyFromOverview = (lobby) => {
+    setLobbyFocusId(lobby?.id || null)
+    setActiveTab('lobbies')
+  }
+
+  const handleOpenUser = (creator) => {
+    setUserQuery(creator?.email || creator?.handle || '')
+    setActiveTab('users')
+  }
+
+  // Logs reference users by raw uuid; the Users search accepts ids too.
+  const handleOpenUserById = (userId) => {
+    if (!userId) return
+    setUserQuery(userId)
+    setActiveTab('users')
+  }
+
   const handleLogout = async () => { await supabase.auth.signOut(); onLogout() }
 
   const currentNav = NAV_ITEMS.find(n => n.key === activeTab)
@@ -423,29 +274,13 @@ const Dashboard = ({ user, onLogout }) => {
   const breadcrumbs = useMemo(() => {
     const crumbs = [{ label: 'Admin', onClick: () => handleNavigate('overview') }]
     if (currentNav) crumbs.push({ label: currentNav.label, key: currentNav.key })
-    if (selectedUser) {
-      if (currentNav?.key !== 'users') crumbs.splice(1, 1, { label: 'Users', key: 'users' })
-      crumbs.push({
-        label: selectedUser.display_name || selectedUser.username || selectedUser.emails || 'User',
-        key: 'user-detail',
-      })
-    }
-    if (selectedTournament) {
-      if (crumbs[crumbs.length - 1].key !== 'tournaments') {
-        const hasTourneys = crumbs.some(c => c.key === 'tournaments')
-        if (!hasTourneys) crumbs.splice(1, 0, { label: 'Tournaments', key: 'tournaments' })
-      }
-      crumbs.push({ label: selectedTournament.name || 'Lobby', key: 'tournament-detail' })
-    }
     return crumbs
-  }, [currentNav, selectedUser, selectedTournament])
+  }, [currentNav])
 
   const initials = (profile?.display_name || profile?.username || user.email || 'A')
     .split(/\s|@/)[0]
     .slice(0, 2)
     .toUpperCase()
-
-  const pendingThemesCount = null
 
   if (loading) {
     return (
@@ -460,34 +295,40 @@ const Dashboard = ({ user, onLogout }) => {
     <div className="dashboard-shell">
       {/* ── Left Icon Rail ── */}
       <aside className="icon-rail" aria-label="Primary navigation">
-        <div className="rail-brand" title="LazarFlow Admin">
-          <div className="rail-brand-mark">
-            <LayoutDashboard size={18} />
-          </div>
-        </div>
+        <button
+          type="button"
+          className="rail-brand"
+          onClick={() => handleNavigate('overview')}
+          title="LazarFlow Admin"
+          aria-label="LazarFlow Admin — go to Overview"
+        >
+          <img src={logoImg} alt="" className="rail-logo" draggable="false" />
+        </button>
         <nav className="rail-nav">
-          {NAV_ITEMS.map(({ key, icon: Icon, label, shortcut }) => {
-            const isActive = activeTab === key && !selectedUser && !selectedTournament
-            const badge =
-              key === 'notifications' ? 3 :
-              key === 'themes' ? pendingThemesCount :
-              key === 'users' ? (stats.totalUsers > 999 ? '999+' : stats.totalUsers || null) :
-              key === 'jobs' ? 'OCR' :
-              null
+          {NAV_ITEMS.map((item, idx) => {
+            const { key, label, shortcut, group } = item
+            const Icon = item.icon
+            const isActive = activeTab === key
+            const startsGroup = idx > 0 && NAV_ITEMS[idx - 1].group !== group
             return (
-              <button
-                key={key}
-                onClick={() => handleNavigate(key)}
-                className={`rail-item ${isActive ? 'active' : ''}`}
-                title={`${label}${shortcut ? `  (${shortcut})` : ''}`}
-                aria-label={label}
-              >
-                <div className="rail-item-icon">
-                  <Icon size={20} strokeWidth={2} />
-                  {badge !== null && <span className="rail-badge">{badge}</span>}
-                </div>
-                <span className="rail-item-tooltip">{label}</span>
-              </button>
+              <Fragment key={key}>
+                {startsGroup && <div className="rail-divider" role="separator" aria-label={group} title={group} />}
+                <button
+                  type="button"
+                  onClick={() => handleNavigate(key)}
+                  className={`rail-item ${isActive ? 'active' : ''}`}
+                  aria-label={label}
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  <div className="rail-item-icon">
+                    <Icon size={20} strokeWidth={2} />
+                  </div>
+                  <span className="rail-item-tooltip">
+                    {label}
+                    {shortcut && <kbd className="rail-tip-kbd">{shortcut}</kbd>}
+                  </span>
+                </button>
+              </Fragment>
             )
           })}
         </nav>
@@ -608,46 +449,53 @@ const Dashboard = ({ user, onLogout }) => {
 
         {/* ── Content Area ── */}
         <main className="content-area">
-          {error && <div className="alert alert-error"><XCircle size={16} /> {error}</div>}
           {success && <div className="alert alert-success"><CheckCircle2 size={16} /> {success}</div>}
 
           {/* View Routing */}
-          {selectedTournament ? (
-            <TournamentTeamsView
-              tournament={selectedTournament} teams={tournamentTeams}
-              loadingTeams={loadingTeams} onBack={handleBackToTournaments}
+          {activeTab === 'overview' ? (
+            <OverviewView
+              onNavigate={handleNavigate}
+              onOpenLobby={handleOpenLobbyFromOverview}
+              refreshKey={overviewRefreshKey}
             />
-          ) : selectedUser ? (
-            <UserDetailView
-              user={selectedUser} tournaments={userTournaments}
-              loadingTournaments={loadingTournaments}
-              onBack={handleBackToUsers} onViewTeams={handleViewTournamentTeams}
+          ) : activeTab === 'revenue' ? (
+            <RevenueView
+              externalRefreshKey={dataRefreshKey}
+              onOpenUser={handleOpenUser}
             />
-          ) : activeTab === 'overview' ? (
-            <StatsView stats={stats} loading={loadingStats} onNavigate={handleNavigate} />
           ) : activeTab === 'services' ? (
             <ServicesView />
-          ) : activeTab === 'tournaments' ? (
-            <GlobalTournamentListView
-              tournaments={allTournaments} loading={loadingAllTournaments}
-              onViewTeams={handleViewTournamentTeams}
+          ) : activeTab === 'lobbies' ? (
+            <LobbiesView
+              key={lobbyFocusId || 'lobbies'}
+              focusLobbyId={lobbyFocusId}
+              onOpenUser={handleOpenUser}
+              externalRefreshKey={dataRefreshKey}
             />
           ) : activeTab === 'notifications' ? (
             <NotificationsView />
           ) : activeTab === 'jobs' ? (
             <OCRJobsView addLog={addLog} />
+          ) : activeTab === 'logs' ? (
+            <LogsView
+              externalRefreshKey={dataRefreshKey}
+              onOpenUser={handleOpenUserById}
+            />
           ) : activeTab === 'themes' ? (
             <ThemeBuilderView addLog={addLog} />
-          ) : (
-            <UserListView
-              users={users} filteredUsers={filteredUsers}
-              searchQuery={searchQuery} setSearchQuery={setSearchQuery}
-              updating={updating}
-              updateFluxBalance={updateFluxBalance}
-              onViewUserDetails={handleViewUserDetails}
-              loading={loadingUsers}
+          ) : activeTab === 'users' ? (
+            <UsersView
+              key={userQuery || 'users'}
+              initialQuery={userQuery}
+              externalRefreshKey={dataRefreshKey}
+              admin={profile ? {
+                id: profile.id,
+                display_name: profile.display_name,
+                username: profile.username,
+                emails: profile.emails,
+              } : null}
             />
-          )}
+          ) : null}
         </main>
       </div>
 

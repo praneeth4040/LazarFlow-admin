@@ -4,31 +4,17 @@ import {
   Save, Loader2, CheckCircle2, AlertCircle, ArrowLeft, Crosshair,
   ChevronDown, ChevronRight, AlignLeft, AlignCenter, AlignRight,
   SkipForward, RotateCcw, Type, Move, Eye, X, Download,
-  Magnet, ChevronsRight, ArrowUpDown,
+  Magnet, ChevronsRight, ArrowUpDown, Sparkles,
 } from 'lucide-react'
 import {
   EMPTY_MAPPING_CONFIG, FONT_OPTIONS, FONT_FAMILY_MAP, DUMMY_TEAMS,
-  fetchFontMetrics, getYCorrection,
+  fetchFontMetrics, getYCorrection, COLUMNS, EXTRA_COLUMNS,
 } from '../../constants/themeConstants'
+import AskAiModal from './AskAiModal'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Field definitions
 // ─────────────────────────────────────────────────────────────────────────────
-
-const COLUMNS = [
-  { key: 'rank',  label: 'Rank' },
-  { key: 'team',  label: 'Team Name' },
-  { key: 'w',     label: 'Wins' },
-  { key: 'pp',    label: 'Placement Pts' },
-  { key: 'kp',    label: 'Kill Pts' },
-  { key: 'total', label: 'Total' },
-  { key: 'mp',    label: 'Matches Played' },
-]
-
-const EXTRA_COLUMNS = [
-  { key: 'tournament_name',     label: 'Tournament Name' },
-  { key: 'lazarflow-watermark', label: 'LazarFlow Watermark' },
-]
 
 const SNAP_THRESHOLD = 20   // natural-px distance to trigger snap
 const HISTORY_LIMIT  = 40
@@ -302,24 +288,75 @@ const FieldTree = ({ config, selected, onSelect }) => {
 // Features: click-to-place, live preview, snap guides, click-to-select, drag-to-move
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect, snapEnabled }) => {
+const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, onPlace, onSelect, snapEnabled }) => {
   const [dims, setDims]     = useState({ w: 0, h: 0 })
   const [hover, setHover]   = useState(null)   // { nx, ny, dx, dy, snapX, snapY }
   const [drag, setDrag]     = useState(null)   // { key: 'cell-r-c'|'extra-k', startNx, startNy, origX, origY }
   const [, forceUpdate]     = useState(0)
 
+  // View state — zoom 1 = fit-to-area; x/y = pan offset in screen px (origin: center)
+  const [view, setView]           = useState({ zoom: 1, x: 0, y: 0 })
+  const [spaceDown, setSpaceDown] = useState(false)
+  const zoomRef   = useRef(null)   // .me-canvas-zoom element
+  const panRef    = useRef(null)   // active pan gesture { sx, sy, vx, vy }
+  const pannedRef = useRef(false)  // a pan just happened → suppress the next click-place
+
   useEffect(() => {
     const img = imgRef.current
     if (!img) return
     const measure = () => {
-      const r = img.getBoundingClientRect()
-      if (r.width > 0 && r.height > 0) setDims({ w: r.width, h: r.height })
+      // Layout size — unaffected by the zoom transform on the ancestor
+      if (img.offsetWidth > 0 && img.offsetHeight > 0)
+        setDims({ w: img.offsetWidth, h: img.offsetHeight })
     }
     measure()
-    const ro = new ResizeObserver(measure)
+    const ro = new ResizeObserver(entries => {
+      const cr = entries[0]?.contentRect
+      if (cr && cr.width > 0 && cr.height > 0) setDims({ w: cr.width, h: cr.height })
+      else measure()
+    })
     ro.observe(img)
     return () => ro.disconnect()
   }, [imgRef, imgLoaded])
+
+  // Wheel = zoom at cursor (shift+wheel = pan); non-passive so preventDefault works
+  useEffect(() => {
+    const area = zoomRef.current?.closest('.me-canvas-area')
+    if (!area) return
+    const onWheel = (e) => {
+      e.preventDefault()
+      if (e.shiftKey) {
+        setView(v => ({ ...v, x: v.x - (e.deltaY + e.deltaX) }))
+        return
+      }
+      const rect = area.getBoundingClientRect()
+      const px = e.clientX - (rect.left + rect.width / 2)
+      const py = e.clientY - (rect.top + rect.height / 2)
+      setView(v => {
+        const nz = Math.min(6, Math.max(0.2, v.zoom * Math.exp(-e.deltaY * 0.0018)))
+        const k = nz / v.zoom
+        return { zoom: nz, x: px - (px - v.x) * k, y: py - (py - v.y) * k }
+      })
+    }
+    area.addEventListener('wheel', onWheel, { passive: false })
+    return () => area.removeEventListener('wheel', onWheel)
+  }, [imgLoaded])
+
+  // Space = pan modifier; +/− zoom, 0 = fit
+  useEffect(() => {
+    const isFormField = (t) => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')
+    const dn = (e) => {
+      if (isFormField(e.target)) return
+      if (e.code === 'Space') { e.preventDefault(); setSpaceDown(true); return }
+      if (e.key === '+' || e.key === '=') setView(v => ({ ...v, zoom: Math.min(6, v.zoom * 1.25) }))
+      else if (e.key === '-') setView(v => ({ ...v, zoom: Math.max(0.2, v.zoom / 1.25) }))
+      else if (e.key === '0') setView({ zoom: 1, x: 0, y: 0 })
+    }
+    const up = (e) => { if (e.code === 'Space') setSpaceDown(false) }
+    window.addEventListener('keydown', dn)
+    window.addEventListener('keyup', up)
+    return () => { window.removeEventListener('keydown', dn); window.removeEventListener('keyup', up) }
+  }, [])
 
   useEffect(() => {
     const fonts = new Set()
@@ -343,10 +380,14 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
     return { nx, ny, dx, dy }
   }, [imgRef])
 
-  // Hit-test: find a placed dot within SNAP_THRESHOLD display-px of click
-  const hitTest = useCallback((dx, dy) => {
+  // Hit-test: find a placed dot within SNAP_THRESHOLD display-px of click.
+  // dx/dy arrive in screen px — convert to internal (fit) px so the zoom
+  // transform keeps hit areas screen-consistent.
+  const hitTest = useCallback((dxScreen, dyScreen) => {
     const img = imgRef.current
     if (!img) return null
+    const dx = dxScreen / view.zoom
+    const dy = dyScreen / view.zoom
     const sx = dims.w / img.naturalWidth
     const sy = dims.h / img.naturalHeight
     const HIT_PX = 18
@@ -375,9 +416,16 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
       }
     }
     return null
-  }, [config, dims, imgRef])
+  }, [config, dims, imgRef, view.zoom])
 
   const handleMouseDown = useCallback((e) => {
+    // Middle-drag or space+left-drag pans the canvas
+    if (e.button === 1 || (e.button === 0 && spaceDown)) {
+      e.preventDefault()
+      panRef.current = { sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }
+      pannedRef.current = false
+      return
+    }
     if (e.button !== 0) return
     const c = getNaturalCoords(e)
     if (!c) return
@@ -389,9 +437,17 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
       onSelect({ section: hit.section, rowIdx: hit.rowIdx, colKey: hit.colKey })
       setDrag({ ...hit, startNx: c.nx, startNy: c.ny })
     }
-  }, [getNaturalCoords, hitTest, onSelect])
+  }, [getNaturalCoords, hitTest, onSelect, spaceDown, view.x, view.y])
 
   const handleMouseMove = useCallback((e) => {
+    // Active canvas pan
+    if (panRef.current) {
+      const p = panRef.current
+      if (Math.abs(e.clientX - p.sx) + Math.abs(e.clientY - p.sy) > 3) pannedRef.current = true
+      setView(v => ({ ...v, x: p.vx + (e.clientX - p.sx), y: p.vy + (e.clientY - p.sy) }))
+      return
+    }
+
     const c = getNaturalCoords(e)
     if (!c) return
 
@@ -417,6 +473,10 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
   }, [getNaturalCoords, drag, selected, config.cells, snapEnabled, imgRef])
 
   const handleMouseUp = useCallback((e) => {
+    if (panRef.current) {
+      panRef.current = null
+      return
+    }
     if (!drag) return
     const c = getNaturalCoords(e)
     if (c) {
@@ -429,8 +489,11 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
   }, [drag, getNaturalCoords, config.cells, snapEnabled, onPlace])
 
   const handleClick = useCallback((e) => {
-    // Don't place if we just finished a drag
-    if (drag) return
+    // Don't place if we just finished a drag or a canvas pan
+    if (drag || pannedRef.current) {
+      pannedRef.current = false
+      return
+    }
     const c = getNaturalCoords(e)
     if (!c) return
 
@@ -448,12 +511,11 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
     onPlace({ x: nx, y: ny })
   }, [drag, getNaturalCoords, hitTest, onSelect, selected, config.cells, snapEnabled, onPlace])
 
-  if (!imgLoaded || dims.w === 0) return null
   const img = imgRef.current
-  if (!img?.naturalWidth) return null
+  const canvasReady = imgLoaded && dims.w > 0 && !!img?.naturalWidth
 
-  const sx = dims.w / img.naturalWidth
-  const sy = dims.h / img.naturalHeight
+  const sx = canvasReady ? dims.w / img.naturalWidth : 1
+  const sy = canvasReady ? dims.h / img.naturalHeight : 1
   const sb         = config.scoreboard || {}
   const sbColor    = sb.color_rgb  || [255, 255, 255]
   const sbFontPath = sb.font_path  || FONT_OPTIONS[0]
@@ -478,6 +540,7 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
           key: `cell-${rowIdx}-${col.key}`,
           x: px, y: py,
           value: String(DUMMY_TEAMS[rowIdx]?.[col.key] ?? ''),
+          label: `${col.label} · Row ${rowIdx + 1}`,
           color, fontSize: fontSizePx,
           family: getFontFamily(fontPath),
           align: coords.alignment || 'center',
@@ -501,6 +564,7 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
       key: `extra-${col.key}`,
       x: px, y: py,
       value: MOCK_EXTRA[col.key] ?? col.key,
+      label: col.label,
       color, fontSize: fontSizePx,
       family: getFontFamily(fontPath),
       align: coords.alignment || 'center',
@@ -523,18 +587,34 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
   const snapGuideX = hover?.snapX != null ? hover.snapX * sx : null
   const snapGuideY = hover?.snapY != null ? hover.snapY * sy : null
 
-  const cursor = drag ? 'grabbing' : selected ? 'crosshair' : 'default'
+  const cursor = drag ? 'grabbing' : (spaceDown || panRef.current) ? 'grab' : selected ? 'crosshair' : 'default'
 
   return (
-    <div
-      className="me-canvas-overlay"
-      style={{ width: dims.w, height: dims.h, cursor, pointerEvents: 'all' }}
-      onClick={handleClick}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={() => { setHover(null); if (drag) setDrag(null) }}
-    >
+    <>
+      <div
+        className="me-canvas-zoom"
+        ref={zoomRef}
+        style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}
+      >
+        <div className="me-canvas-wrap">
+          <img
+            ref={imgRef}
+            src={theme.url}
+            alt={theme.name || 'theme'}
+            className="me-canvas-img"
+            draggable={false}
+            onLoad={onImgLoad}
+          />
+          {canvasReady && (
+            <div
+              className="me-canvas-overlay"
+              style={{ width: dims.w, height: dims.h, cursor, pointerEvents: 'all' }}
+              onClick={handleClick}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={() => { setHover(null); if (drag) setDrag(null); panRef.current = null }}
+            >
       {/* Text labels */}
       {textItems.map(item => (
         <div
@@ -551,13 +631,29 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
             lineHeight:     1,
             whiteSpace:    'nowrap',
             transform:      getTransform(item.align),
-            textShadow:    'none',
-            opacity:        (item.isActive || item.isDragged) ? 1 : 0.7,
+            textShadow:    (item.isActive || item.isDragged)
+              ? '0 0 0 1px rgba(139,92,246,0.9), 0 2px 8px rgba(0,0,0,0.9)'
+              : '0 1px 3px rgba(0,0,0,0.85), 0 0 1px rgba(0,0,0,0.5)',
+            opacity:        (item.isActive || item.isDragged) ? 1 : 0.85,
             pointerEvents: 'none',
             zIndex:         (item.isActive || item.isDragged) ? 20 : 10,
+            outline:        (item.isActive || item.isDragged) ? '1.5px solid #8b5cf6' : 'none',
+            outlineOffset:  2,
+            borderRadius:   2,
           }}
         >
           {item.value}
+          {/* Canva-style corner handles + name tag on the selected element */}
+          {(item.isActive || item.isDragged) && [[0, 0], [1, 0], [0, 1], [1, 1]].map(([hx, hy], i) => (
+            <span
+              key={i}
+              className="me-canvas-handle"
+              style={{ left: hx ? '100%' : 0, top: hy ? '100%' : 0 }}
+            />
+          ))}
+          {item.isActive && (
+            <span className="me-canvas-sel-tag">{item.label}</span>
+          )}
         </div>
       ))}
 
@@ -585,16 +681,16 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
       {hover && !drag && (
         <>
           {snapGuideX === null && (
-            <div className="me-canvas-guide me-canvas-guide-v" style={{ left: hover.dx }} />
+            <div className="me-canvas-guide me-canvas-guide-v" style={{ left: hover.dx / view.zoom }} />
           )}
           {snapGuideY === null && (
-            <div className="me-canvas-guide me-canvas-guide-h" style={{ top: hover.dy }} />
+            <div className="me-canvas-guide me-canvas-guide-h" style={{ top: hover.dy / view.zoom }} />
           )}
           <div
             className="me-canvas-coord-badge"
             style={{
-              left: Math.min(hover.dx + 14, dims.w - 95),
-              top:  Math.max(hover.dy - 30, 4),
+              left: Math.min(hover.dx / view.zoom + 14, dims.w - 95),
+              top:  Math.max(hover.dy / view.zoom - 30, 4),
             }}
           >
             {hover.nx}, {hover.ny}
@@ -612,8 +708,8 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
         <div
           className="me-canvas-coord-badge me-canvas-coord-badge-drag"
           style={{
-            left: Math.min(hover.dx + 14, dims.w - 95),
-            top:  Math.max(hover.dy - 30, 4),
+            left: Math.min(hover.dx / view.zoom + 14, dims.w - 95),
+            top:  Math.max(hover.dy / view.zoom - 30, 4),
           }}
         >
           {hover.nx}, {hover.ny}
@@ -623,10 +719,46 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
       {/* Place hint */}
       {selected && !activeDotPos && !hover && !drag && (
         <div className="me-canvas-place-hint">
-          Click on the image to place · drag existing dots to move
+          Click on the image to place · drag dots to move · scroll to zoom
         </div>
       )}
-    </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Canvas toolbar */}
+      {canvasReady && (
+        <div className="me-canvas-toolbar">
+          <button
+            className="me-canvas-tool-btn"
+            title="Zoom out (−)"
+            aria-label="Zoom out"
+            onClick={() => setView(v => ({ ...v, zoom: Math.max(0.2, v.zoom / 1.25) }))}
+          >−</button>
+          <span className="me-canvas-zoom-label" title="Zoom — 100% means fit-to-view">
+            {Math.round(view.zoom * 100)}%
+          </span>
+          <button
+            className="me-canvas-tool-btn"
+            title="Zoom in (+)"
+            aria-label="Zoom in"
+            onClick={() => setView(v => ({ ...v, zoom: Math.min(6, v.zoom * 1.25) }))}
+          >+</button>
+          <span className="me-canvas-tool-sep" />
+          <button
+            className="me-canvas-tool-btn"
+            title="Fit to view (0)"
+            onClick={() => setView({ zoom: 1, x: 0, y: 0 })}
+          >Fit</button>
+          <button
+            className="me-canvas-tool-btn"
+            title="Actual size (1:1)"
+            onClick={() => setView({ zoom: Math.min(6, Math.max(0.2, img.naturalWidth / dims.w)), x: 0, y: 0 })}
+          >1:1</button>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -635,7 +767,7 @@ const CanvasOverlay = ({ imgRef, imgLoaded, config, selected, onPlace, onSelect,
 // Includes: Position, Alignment, Font, Color, Skip, Bulk column nudge, Copy layout
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacing }) => {
+const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacing, onSelect }) => {
   const [spacing, setSpacing] = useState(0)
 
   const coords = selected?.section === 'extra'
@@ -703,6 +835,14 @@ const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacin
         ) : (
           <span className="me-insp-status unmapped">Unmapped</span>
         )}
+        <button
+          className="me-insp-deselect-btn"
+          title="Deselect (Esc)"
+          aria-label="Deselect"
+          onClick={() => onSelect?.(null)}
+        >
+          <X size={13} />
+        </button>
       </div>
 
       <div className="me-insp-body">
@@ -755,7 +895,7 @@ const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacin
                 value={effectiveSize} min={8} max={800} step={5} disabled={skipped}
                 onChange={e => set({ font_size: parseInt(e.target.value) || sbSize })} />
               {coords?.font_size && (
-                <button className="me-insp-reset-btn" title="Reset"
+                <button className="me-insp-reset-btn" title="Reset" aria-label="Reset"
                   onClick={() => set({ font_size: undefined })}><RotateCcw size={12} /></button>
               )}
             </div>
@@ -771,7 +911,7 @@ const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacin
                 ))}
               </select>
               {coords?.font_path && (
-                <button className="me-insp-reset-btn" title="Reset"
+                <button className="me-insp-reset-btn" title="Reset" aria-label="Reset"
                   onClick={() => set({ font_path: undefined })}><RotateCcw size={12} /></button>
               )}
             </div>
@@ -791,7 +931,7 @@ const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacin
               rgb({effectiveColor[0]}, {effectiveColor[1]}, {effectiveColor[2]})
             </span>
             {coords?.color_rgb && (
-              <button className="me-insp-reset-btn" title="Reset"
+              <button className="me-insp-reset-btn" title="Reset" aria-label="Reset"
                 onClick={() => set({ color_rgb: undefined })}><RotateCcw size={12} /></button>
             )}
           </div>
@@ -871,6 +1011,9 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
   const [previewUrl,   setPreviewUrl]   = useState(null)
   const [previewError, setPreviewError] = useState('')
   const [previewOpen,  setPreviewOpen]  = useState(false)
+
+  // Ask AI modal
+  const [askAiOpen, setAskAiOpen] = useState(false)
 
   // Selected cell: { section, rowIdx, colKey }
   const [selected, setSelected] = useState(null)
@@ -1033,10 +1176,16 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
   // ── Keyboard shortcuts ──
   useEffect(() => {
     const fn = (e) => {
+      if (askAiOpen) return   // Ask AI modal handles its own keys
+
       const tag = e.target.tagName
       const inInput = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'
 
-      if (e.key === 'Escape') { onClose(); return }
+      if (e.key === 'Escape') {
+        // Canva-style: Escape deselects first, closes the editor only when nothing is selected
+        if (selected) { setSelected(null); return }
+        onClose(); return
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return }
       if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return }
 
@@ -1057,7 +1206,22 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
     }
     window.addEventListener('keydown', fn)
     return () => window.removeEventListener('keydown', fn)
-  }, [onClose, undo, redo, navigateCell, arrowNudge, selected])
+  }, [onClose, undo, redo, navigateCell, arrowNudge, selected, askAiOpen])
+
+  // ── Ask AI — apply a normalized config returned by the modal ──
+  const handleApplyAiConfig = useCallback((nextConfig) => {
+    commitConfig(() => nextConfig)
+    setSelected(null)
+  }, [commitConfig])
+
+  // Clicking the already-selected field in the tree deselects it (Canva-style toggle)
+  const handleTreeSelect = useCallback((sel) => {
+    setSelected(prev => (
+      prev && prev.section === sel.section && prev.rowIdx === sel.rowIdx && prev.colKey === sel.colKey
+        ? null
+        : sel
+    ))
+  }, [])
 
   // ── Server preview ──
   const handleServerPreview = useCallback(async () => {
@@ -1133,6 +1297,7 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
             <span>Tab <span className="me-hint-key">next cell</span></span>
             <span>↑↓←→ <span className="me-hint-key">nudge 1px</span></span>
             <span>⇧+↑↓←→ <span className="me-hint-key">10px</span></span>
+            <span>+ / − <span className="me-hint-key">zoom</span></span>
             <span>⌘Z <span className="me-hint-key">undo</span></span>
           </div>
 
@@ -1148,10 +1313,11 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
             </button>
 
             {/* Undo / Redo */}
-            <button className="me-icon-btn" onClick={undo} disabled={history.length === 0} title="Undo (⌘Z)">
+            <button className="me-icon-btn" onClick={undo} disabled={history.length === 0} title="Undo (⌘Z)" aria-label="Undo">
               <RotateCcw size={14} />
             </button>
             <button className="me-icon-btn" onClick={redo} disabled={future.length === 0} title="Redo (⌘⇧Z)"
+              aria-label="Redo"
               style={{ transform: 'scaleX(-1)' }}>
               <RotateCcw size={14} />
             </button>
@@ -1159,6 +1325,15 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
             {saveError && <span className="me-error-inline"><AlertCircle size={13} /> {saveError}</span>}
             {previewError && <span className="me-error-inline"><AlertCircle size={13} /> {previewError}</span>}
             {saveOk && <span className="me-saved-badge"><CheckCircle2 size={13} /> Saved</span>}
+
+            <button
+              className="me-ai-btn"
+              onClick={() => setAskAiOpen(true)}
+              disabled={!imgLoaded}
+              title="Generate a mapping draft with an AI vision model"
+            >
+              <Sparkles size={13} /> Ask AI
+            </button>
 
             <button className="me-preview-server-btn" onClick={handleServerPreview} disabled={previewing}>
               {previewing
@@ -1180,32 +1355,24 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
         <div className="me-body">
 
           <aside className="me-panel me-panel-left">
-            <FieldTree config={config} selected={selected} onSelect={setSelected} />
+            <FieldTree config={config} selected={selected} onSelect={handleTreeSelect} />
           </aside>
 
           <main className="me-canvas-area">
             {!theme.url ? (
               <div className="me-canvas-empty"><p>No image URL on this theme.</p></div>
             ) : (
-              <div className="me-canvas-wrap">
-                <img
-                  ref={imgRef}
-                  src={theme.url}
-                  alt={theme.name || 'theme'}
-                  className="me-canvas-img"
-                  draggable={false}
-                  onLoad={() => setImgLoaded(true)}
-                />
-                <CanvasOverlay
-                  imgRef={imgRef}
-                  imgLoaded={imgLoaded}
-                  config={config}
-                  selected={selected}
-                  onPlace={handlePlace}
-                  onSelect={setSelected}
-                  snapEnabled={snapEnabled}
-                />
-              </div>
+              <CanvasOverlay
+                theme={theme}
+                imgRef={imgRef}
+                imgLoaded={imgLoaded}
+                onImgLoad={() => setImgLoaded(true)}
+                config={config}
+                selected={selected}
+                onPlace={handlePlace}
+                onSelect={setSelected}
+                snapEnabled={snapEnabled}
+              />
             )}
           </main>
 
@@ -1216,15 +1383,30 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
               onUpdate={updateCell}
               onCopyLayout={handleCopyLayout}
               onApplySpacing={handleApplySpacing}
+              onSelect={setSelected}
             />
           </aside>
 
         </div>
       </div>
 
+      {/* Ask AI modal */}
+      {askAiOpen && (
+        <AskAiModal
+          theme={theme}
+          imgRef={imgRef}
+          config={config}
+          onApply={handleApplyAiConfig}
+          onClose={() => setAskAiOpen(false)}
+        />
+      )}
+
       {/* Server Preview Modal */}
       {previewOpen && previewUrl && (
-        <div className="me-preview-modal-overlay" onClick={() => setPreviewOpen(false)}>
+        <div
+          className="me-preview-modal-overlay"
+          onClick={(e) => { e.stopPropagation(); setPreviewOpen(false) }}
+        >
           <div className="me-preview-modal" onClick={e => e.stopPropagation()}>
             <div className="me-preview-modal-header">
               <span className="me-preview-modal-title"><Eye size={15} /> Server Preview</span>
@@ -1233,7 +1415,10 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
                   className="me-preview-download-btn">
                   <Download size={14} /> Download
                 </a>
-                <button className="me-preview-close-btn" onClick={() => setPreviewOpen(false)}>
+                <button
+                  className="me-preview-close-btn"
+                  onClick={(e) => { e.stopPropagation(); setPreviewOpen(false) }}
+                  aria-label="Close preview">
                   <X size={16} />
                 </button>
               </div>

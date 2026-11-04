@@ -3,8 +3,9 @@ import { supabase } from '../../lib/supabase'
 import {
   Activity, Server, Database, Shield, Cpu, HardDrive,
   RefreshCcw, ExternalLink, Globe, CheckCircle2, AlertTriangle, XCircle,
-  Clock, Zap, Info, ChevronRight, Terminal, Layers
+  Clock, Terminal, Layers, X,
 } from 'lucide-react'
+import './ServicesView.css'
 
 const SERVICES = [
   {
@@ -67,7 +68,7 @@ const SERVICES = [
 ]
 
 // Generate simulated historical ping bars for visual health sparkline
-const generateSparkline = (currentStatus, currentLatency) => {
+const generateSparkline = (currentStatus) => {
   const bars = []
   for (let i = 0; i < 18; i++) {
     if (currentStatus === 'down') {
@@ -80,6 +81,13 @@ const generateSparkline = (currentStatus, currentLatency) => {
     }
   }
   return bars
+}
+
+const STATUS_META = {
+  checking: { label: 'Checking…', cls: 'info' },
+  operational: { label: 'Operational', cls: 'ok' },
+  degraded: { label: 'Degraded', cls: 'warn' },
+  down: { label: 'Offline', cls: 'down' },
 }
 
 export default function ServicesView() {
@@ -209,22 +217,21 @@ export default function ServicesView() {
   const isAnyDown = stateValues.some(s => s.status === 'down')
   const isAnyDegraded = stateValues.some(s => s.status === 'degraded')
   const operationalCount = stateValues.filter(s => s.status === 'operational').length
+  const degradedCount = stateValues.filter(s => s.status === 'degraded').length
+  const downCount = stateValues.filter(s => s.status === 'down').length
   const totalCount = SERVICES.length
 
   let globalStatusText = 'All Systems Operational'
-  let globalColor = '#10b981'
-  let globalBg = 'rgba(16, 185, 129, 0.12)'
+  let globalTone = 'ok'
   let GlobalIcon = CheckCircle2
 
   if (isAnyDown) {
     globalStatusText = 'Partial System Outage'
-    globalColor = '#ef4444'
-    globalBg = 'rgba(239, 68, 68, 0.12)'
+    globalTone = 'down'
     GlobalIcon = XCircle
   } else if (isAnyDegraded) {
     globalStatusText = 'Degraded Performance'
-    globalColor = '#f59e0b'
-    globalBg = 'rgba(245, 158, 11, 0.12)'
+    globalTone = 'warn'
     GlobalIcon = AlertTriangle
   }
 
@@ -232,266 +239,282 @@ export default function ServicesView() {
     stateValues.reduce((acc, s) => acc + (s.latency || 0), 0) / (stateValues.length || 1)
   )
 
+  const cards = [
+    {
+      key: 'operational',
+      label: 'Operational',
+      value: `${operationalCount} / ${totalCount}`,
+      meta: 'Services responding cleanly',
+      icon: CheckCircle2,
+      tone: 'green',
+    },
+    {
+      key: 'degraded',
+      label: 'Degraded',
+      value: String(degradedCount),
+      meta: degradedCount ? 'Slow responses (>800ms)' : 'None above latency target',
+      icon: AlertTriangle,
+      tone: 'amber',
+    },
+    {
+      key: 'offline',
+      label: 'Offline',
+      value: String(downCount),
+      meta: downCount ? 'Endpoints unreachable' : 'Zero downtime',
+      icon: XCircle,
+      tone: downCount ? 'red' : 'violet',
+    },
+    {
+      key: 'latency',
+      label: 'Avg response',
+      value: `${avgLatency || 0} ms`,
+      meta: 'Across all pinged endpoints',
+      icon: Activity,
+      tone: 'blue',
+    },
+    {
+      key: 'checked',
+      label: 'Last checked',
+      value: lastChecked ? lastChecked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—',
+      meta: autoRefresh ? 'Auto-refresh every 30s' : 'Auto-refresh paused',
+      icon: Clock,
+      tone: 'teal',
+    },
+  ]
+
   return (
-    <div className="prof-services-dashboard">
-
-      {/* ── Dashboard Header Bar ── */}
-      <div className="ps-header">
-        <div className="ps-header-left">
-          <div className="ps-icon-wrapper">
-            <Activity size={22} />
-          </div>
+    <div className="srv-page">
+      {/* ── Hero ── */}
+      <section className="srv-hero" aria-labelledby="srv-title">
+        <header className="srv-hero-head">
           <div>
-            <h2>Services & Infrastructure Health</h2>
-            <p className="ps-sub">Real-time status monitoring, API latencies, and microservice operational health.</p>
+            <span className="srv-eyebrow"><Activity size={12} /> Infrastructure</span>
+            <h1 id="srv-title" className="srv-title">Services</h1>
+            <p className="srv-subtitle">
+              Real-time status monitoring, API latencies and microservice health.
+            </p>
           </div>
-        </div>
-
-        <div className="ps-header-actions">
-          <label className="ps-toggle-label">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-            />
-            <span>Auto-refresh (30s)</span>
-          </label>
-          <button
-            className={`ps-refresh-btn ${checking ? 'is-spinning' : ''}`}
-            onClick={checkAllServices}
-            disabled={checking}
-          >
-            <RefreshCcw size={14} className={checking ? 'spin' : ''} />
-            {checking ? 'Checking Pings...' : 'Refresh All'}
-          </button>
-        </div>
-      </div>
-
-      {/* ── Hero Status Banner ── */}
-      <div className="ps-hero-banner" style={{ borderLeftColor: globalColor }}>
-        <div className="ps-hero-status">
-          <div className="ps-pulse-wrap" style={{ color: globalColor, background: globalBg }}>
-            <GlobalIcon size={24} />
-          </div>
-          <div>
-            <div className="ps-status-title" style={{ color: globalColor }}>
-              {globalStatusText}
-            </div>
-            <div className="ps-status-sub">
-              {operationalCount} of {totalCount} services responding cleanly with zero downtime.
-            </div>
-          </div>
-        </div>
-
-        <div className="ps-hero-metrics">
-          <div className="ps-metric-box">
-            <span className="ps-m-label">Operational</span>
-            <span className="ps-m-value txt-green">{operationalCount} / {totalCount}</span>
-          </div>
-          <div className="ps-metric-divider" />
-          <div className="ps-metric-box">
-            <span className="ps-m-label">Avg Response Time</span>
-            <span className="ps-m-value">{avgLatency || 0} ms</span>
-          </div>
-          <div className="ps-metric-divider" />
-          <div className="ps-metric-box">
-            <span className="ps-m-label">Last Checked</span>
-            <span className="ps-m-value ps-time">{lastChecked ? lastChecked.toLocaleTimeString() : 'Checking...'}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Services Grid Cards ── */}
-      <div className="ps-services-grid">
-        {SERVICES.map((svc) => {
-          const state = serviceStates[svc.id] || { status: 'checking', latency: 0, sparkline: [] }
-          const isOperational = state.status === 'operational'
-          const isDegraded = state.status === 'degraded'
-          const isDown = state.status === 'down'
-
-          let statusColor = '#3b82f6'
-          let statusBg = 'rgba(59, 130, 246, 0.12)'
-          let statusLabel = 'Checking...'
-
-          if (isOperational) {
-            statusColor = '#10b981'
-            statusBg = 'rgba(16, 185, 129, 0.12)'
-            statusLabel = 'Operational'
-          } else if (isDegraded) {
-            statusColor = '#f59e0b'
-            statusBg = 'rgba(245, 158, 11, 0.12)'
-            statusLabel = 'Degraded'
-          } else if (isDown) {
-            statusColor = '#ef4444'
-            statusBg = 'rgba(239, 68, 68, 0.12)'
-            statusLabel = 'Offline'
-          }
-
-          const ServiceIcon = svc.icon || Server
-
-          return (
-            <div
-              key={svc.id}
-              className="ps-card"
-              onClick={() => setActiveDrawerService({ ...svc, ...state })}
+          <div className="srv-head-actions">
+            <span className={`srv-live ${checking ? 'is-refreshing' : ''}`}>
+              <span className="srv-live-dot" aria-hidden="true" />
+              {checking ? 'Pinging…' : lastChecked ? `Live · ${lastChecked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Live'}
+            </span>
+            <button
+              type="button"
+              className={`srv-action ${autoRefresh ? 'is-on' : ''}`}
+              onClick={() => setAutoRefresh(v => !v)}
+              aria-pressed={autoRefresh}
+              title="Toggle 30-second auto refresh"
             >
-              {/* Card Top Row */}
-              <div className="ps-card-top">
-                <div className="ps-card-identity">
-                  <div className="ps-card-icon">
-                    <ServiceIcon size={16} />
-                  </div>
-                  <div>
-                    <h3 className="ps-card-title">{svc.name}</h3>
-                    <span className="ps-card-provider">{svc.provider}</span>
-                  </div>
-                </div>
+              <RefreshCcw size={14} /> Auto {autoRefresh ? 'on' : 'off'}
+            </button>
+            <button type="button" className="srv-action" onClick={checkAllServices} disabled={checking}>
+              <RefreshCcw size={14} className={checking ? 'srv-spin' : ''} /> Refresh all
+            </button>
+          </div>
+        </header>
 
-                <div className="ps-status-badge" style={{ color: statusColor, background: statusBg, border: `1px solid ${statusColor}35` }}>
-                  <span className="ps-status-dot" style={{ background: statusColor }} />
-                  {statusLabel}
-                </div>
+        <div className={`srv-banner ${globalTone}`} role="status">
+          <GlobalIcon size={18} />
+          <div className="srv-banner-text">
+            <strong>{globalStatusText}</strong>
+            <span>{operationalCount} of {totalCount} services responding cleanly.</span>
+          </div>
+        </div>
+
+        <div className="srv-kpi-grid" aria-live="polite">
+          {cards.map(({ key, label, value, meta, icon, tone }) => {
+            const Icon = icon
+            return (
+              <div key={key} className="srv-kpi">
+                <span className="srv-kpi-top">
+                  <span className={`srv-kpi-icon ${tone}`}><Icon size={18} /></span>
+                  <span className="srv-kpi-label">{label}</span>
+                </span>
+                <span className="srv-kpi-value">{value}</span>
+                <span className="srv-kpi-meta">{meta}</span>
               </div>
+            )
+          })}
+        </div>
+      </section>
 
-              {/* Description */}
-              <p className="ps-card-desc">{svc.description}</p>
+      {/* ── Service cards ── */}
+      <section className="srv-panel" aria-label="Monitored services">
+        <header className="srv-panel-head">
+          <h2 className="srv-panel-title"><Server size={14} /> Monitored endpoints</h2>
+          <span className="srv-panel-hint">{totalCount} services · click a card for diagnostics</span>
+        </header>
+        <div className="srv-grid">
+          {SERVICES.map((svc) => {
+            const state = serviceStates[svc.id] || { status: 'checking', latency: 0, sparkline: [] }
+            const meta = STATUS_META[state.status] || STATUS_META.checking
+            const ServiceIcon = svc.icon || Server
 
-              {/* 18-Bar Uptime Sparkline */}
-              <div className="ps-sparkline-row" title="Recent 18-check latency history">
-                <div className="ps-sparkline-lbl">Health History</div>
-                <div className="ps-bars-flex">
-                  {(state.sparkline || Array(18).fill('green')).map((color, idx) => (
-                    <span key={idx} className={`ps-bar bar-${color}`} />
-                  ))}
-                </div>
-              </div>
-
-              {/* Card Footer Metrics */}
-              <div className="ps-card-footer">
-                <div className="ps-footer-metric">
-                  <span className="ps-f-label"><Clock size={11} /> Latency</span>
-                  <span className={`ps-f-val ${state.latency > 800 ? 'txt-amber' : isOperational ? 'txt-green' : 'txt-red'}`}>
-                    {state.latency || 0} ms
+            return (
+              <div
+                key={svc.id}
+                className="srv-card"
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveDrawerService({ ...svc, ...state })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.target === e.currentTarget) {
+                    setActiveDrawerService({ ...svc, ...state })
+                  }
+                }}
+                title="Open diagnostics"
+              >
+                <div className="srv-card-top">
+                  <div className="srv-card-identity">
+                    <span className="srv-card-icon"><ServiceIcon size={16} /></span>
+                    <div className="srv-card-name-wrap">
+                      <h3 className="srv-card-name">{svc.name}</h3>
+                      <span className="srv-card-provider">{svc.provider}</span>
+                    </div>
+                  </div>
+                  <span className={`srv-pill ${meta.cls}`}>
+                    <span className="srv-pill-dot" aria-hidden="true" />
+                    {meta.label}
                   </span>
                 </div>
 
-                {svc.url ? (
-                  <a
-                    href={svc.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="ps-endpoint-link"
-                    title="Open live endpoint URL"
+                <p className="srv-card-desc">{svc.description}</p>
+
+                <div className="srv-sparkline-row" title="Recent 18-check latency history">
+                  <span className="srv-sparkline-lbl">Health history</span>
+                  <span className="srv-bars">
+                    {(state.sparkline || Array(18).fill('green')).map((color, idx) => (
+                      <i key={idx} className={`srv-bar bar-${color}`} />
+                    ))}
+                  </span>
+                </div>
+
+                <div className="srv-card-footer">
+                  <span className="srv-latency">
+                    <Clock size={11} />
+                    <span className={`srv-latency-val ${state.latency > 800 ? 'is-slow' : ''}`}>
+                      {state.latency || 0} ms
+                    </span>
+                  </span>
+                  {svc.url ? (
+                    <a
+                      href={svc.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="srv-endpoint"
+                      onClick={(e) => e.stopPropagation()}
+                      title="Open live endpoint URL"
+                    >
+                      <Globe size={11} /> Endpoint <ExternalLink size={10} />
+                    </a>
+                  ) : (
+                    <span className="srv-endpoint is-internal"><Database size={11} /> Internal</span>
+                  )}
+                  <span
+                    className="srv-ping"
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Ping this service"
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      const updated = await checkSingleService(svc)
+                      setServiceStates(prev => ({ ...prev, [svc.id]: updated }))
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        checkSingleService(svc).then(updated => {
+                          setServiceStates(prev => ({ ...prev, [svc.id]: updated }))
+                        })
+                      }
+                    }}
                   >
-                    <Globe size={11} /> Endpoint <ExternalLink size={10} />
-                  </a>
-                ) : (
-                  <span className="ps-endpoint-link internal">
-                    <Database size={11} /> PostgreSQL DB
+                    <RefreshCcw size={12} />
                   </span>
-                )}
-
-                <button
-                  className="ps-card-ping-btn"
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    const updated = await checkSingleService(svc)
-                    setServiceStates(prev => ({ ...prev, [svc.id]: updated }))
-                  }}
-                  title="Ping this single service"
-                >
-                  <RefreshCcw size={13} />
-                </button>
+                </div>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      </section>
 
       {/* ── Slide-Over Diagnostic Drawer ── */}
       {activeDrawerService && (
-        <div className="ps-drawer-overlay" onClick={() => setActiveDrawerService(null)}>
-          <div className="ps-drawer" onClick={(e) => e.stopPropagation()}>
-            
-            <div className="ps-drawer-header">
+        <div className="srv-drawer-overlay" onClick={() => setActiveDrawerService(null)}>
+          <div className="srv-drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="srv-drawer-head">
               <div>
-                <span className="ps-drawer-cat">{activeDrawerService.category} • {activeDrawerService.provider}</span>
+                <span className="srv-drawer-cat">{activeDrawerService.category} · {activeDrawerService.provider}</span>
                 <h2>{activeDrawerService.name}</h2>
               </div>
-              <button className="ps-drawer-close" onClick={() => setActiveDrawerService(null)}>
-                <XCircle size={20} />
+              <button type="button" className="srv-drawer-close" onClick={() => setActiveDrawerService(null)} aria-label="Close diagnostics">
+                <X size={18} />
               </button>
             </div>
 
-            <div className="ps-drawer-body">
-              <div className="ps-d-section">
-                <h4><Activity size={14} /> Operational Metrics</h4>
-                <div className="ps-d-grid">
-                  <div className="ps-d-cell">
+            <div className="srv-drawer-body">
+              <div className="srv-d-section">
+                <h4><Activity size={14} /> Operational metrics</h4>
+                <div className="srv-d-grid">
+                  <div className="srv-d-cell">
                     <span>Status</span>
-                    <strong style={{ color: activeDrawerService.status === 'operational' ? '#10b981' : '#ef4444' }}>
+                    <strong className={`srv-d-status ${activeDrawerService.status === 'operational' ? 'ok' : 'down'}`}>
                       {activeDrawerService.status ? activeDrawerService.status.toUpperCase() : 'UNKNOWN'}
                     </strong>
                   </div>
-                  <div className="ps-d-cell">
-                    <span>Ping Latency</span>
+                  <div className="srv-d-cell">
+                    <span>Ping latency</span>
                     <strong>{activeDrawerService.latency || 0} ms</strong>
                   </div>
-                  <div className="ps-d-cell">
-                    <span>HTTP Status</span>
+                  <div className="srv-d-cell">
+                    <span>HTTP status</span>
                     <strong>{activeDrawerService.statusCode ? `HTTP ${activeDrawerService.statusCode}` : '200 OK'}</strong>
                   </div>
-                  <div className="ps-d-cell">
-                    <span>Last Checked</span>
+                  <div className="srv-d-cell">
+                    <span>Last checked</span>
                     <span>{activeDrawerService.lastCheckedTime || 'Just now'}</span>
                   </div>
                 </div>
               </div>
 
               {activeDrawerService.url && (
-                <div className="ps-d-section">
-                  <h4><Globe size={14} /> Target Endpoint URL</h4>
-                  <div className="ps-code-box">
-                    <code>{activeDrawerService.url}</code>
-                  </div>
+                <div className="srv-d-section">
+                  <h4><Globe size={14} /> Target endpoint URL</h4>
+                  <div className="srv-code"><code>{activeDrawerService.url}</code></div>
                 </div>
               )}
 
-              <div className="ps-d-section">
-                <h4><Terminal size={14} /> Response Header & Payload</h4>
-                <div className="ps-code-box snippet">
-                  <pre>{activeDrawerService.responseSnippet || 'Endpoint ping returned standard HTTP 200 OK.'}</pre>
-                </div>
+              <div className="srv-d-section">
+                <h4><Terminal size={14} /> Response header &amp; payload</h4>
+                <div className="srv-code snippet"><pre>{activeDrawerService.responseSnippet || 'Endpoint ping returned standard HTTP 200 OK.'}</pre></div>
               </div>
 
               {activeDrawerService.errorDetails && (
-                <div className="ps-d-section">
-                  <h4 style={{ color: '#ef4444' }}><AlertTriangle size={14} /> Error Diagnostics</h4>
-                  <div className="ps-code-box error">
-                    <pre>{activeDrawerService.errorDetails}</pre>
-                  </div>
+                <div className="srv-d-section">
+                  <h4 className="is-error"><AlertTriangle size={14} /> Error diagnostics</h4>
+                  <div className="srv-code error"><pre>{activeDrawerService.errorDetails}</pre></div>
                 </div>
               )}
             </div>
 
-            <div className="ps-drawer-footer">
+            <div className="srv-drawer-foot">
               <button
-                className="ps-btn-reping"
+                type="button"
+                className="srv-action"
                 onClick={async () => {
                   const updated = await checkSingleService(activeDrawerService)
                   setActiveDrawerService(prev => ({ ...prev, ...updated }))
                   setServiceStates(prev => ({ ...prev, [activeDrawerService.id]: updated }))
                 }}
               >
-                <RefreshCcw size={14} /> Re-ping Endpoint Now
+                <RefreshCcw size={14} /> Re-ping endpoint now
               </button>
             </div>
-
           </div>
         </div>
       )}
-
     </div>
   )
 }

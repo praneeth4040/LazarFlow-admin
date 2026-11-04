@@ -2,11 +2,12 @@ import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../../lib/supabase'
 import {
   Cpu, FileText, CheckCircle2, AlertTriangle, Clock,
-  Search, XCircle, RefreshCcw, Eye, Layers, DollarSign,
+  Search, XCircle, RefreshCcw, Eye, Layers, Coins,
   Image as ImageIcon, ArrowDownRight, ArrowUpRight, Copy,
-  ChevronRight, User, Trophy, Info, Sparkles, Server, Coins,
-  Calendar, Filter, TrendingUp, Award, BarChart3, ChevronDown, ChevronUp,
+  ChevronRight, User, Trophy, Info, Server, Calendar,
+  BarChart3, X,
 } from 'lucide-react'
+import './OCRJobsView.css'
 
 // Popular OpenRouter OCR/Vision model pricing presets (per 1 Million tokens in USD)
 export const OPENROUTER_MODELS = [
@@ -36,6 +37,8 @@ const calculateJobCostUSD = (tokenUsage, modelConfig) => {
 
   return inputCost + outputCost
 }
+
+const kTokens = (value) => `${(value / 1000).toFixed(1)}k`
 
 const OCRJobsView = ({ addLog }) => {
   const [jobs, setJobs] = useState([])
@@ -399,38 +402,138 @@ const OCRJobsView = ({ addLog }) => {
     }
   }
 
+  const cards = [
+    {
+      key: 'total',
+      label: 'Filtered jobs',
+      value: stats.total.toLocaleString('en-IN'),
+      meta: `${stats.extractResultsCount} extract · ${stats.processLobbyCount} lobby`,
+      icon: Layers,
+      tone: 'violet',
+    },
+    {
+      key: 'success',
+      label: 'Success rate',
+      value: `${stats.successRate}%`,
+      meta: `${stats.doneCount} ok · ${stats.failedCount} failed`,
+      icon: CheckCircle2,
+      tone: 'green',
+    },
+    {
+      key: 'input',
+      label: 'Input tokens',
+      value: kTokens(stats.totalInputTokens),
+      meta: 'Prompt tokens across all jobs',
+      icon: ArrowDownRight,
+      tone: 'blue',
+    },
+    {
+      key: 'output',
+      label: 'Output tokens',
+      value: kTokens(stats.totalOutputTokens),
+      meta: 'Completion tokens returned',
+      icon: ArrowUpRight,
+      tone: 'teal',
+    },
+    {
+      key: 'cost',
+      label: `Total AI cost (${currency})`,
+      value: formatCost(stats.totalCostUSD),
+      meta: `${currentModelConfig.name.split('(')[0].trim()}`,
+      icon: Coins,
+      tone: 'amber',
+      title: `Estimated with ${currentModelConfig.name}: ${formatRate(currentModelConfig.inputRate)} per 1M input, ${formatRate(currentModelConfig.outputRate)} per 1M output${currency === 'INR' ? ` · exchange rate ₹${inrRate.toFixed(2)}/USD` : ''}.`,
+    },
+  ]
+
+  const ANALYTICS_TABS = [
+    { key: 'top_users', label: 'Top 4 Users', icon: User },
+    { key: 'top_lobbies', label: 'Top 4 Lobbies', icon: Trophy },
+    { key: 'job_types', label: 'Job Type Split', icon: BarChart3 },
+    { key: 'daily_ledger', label: `Daily Ledger (${dailyCostLedger.length})`, icon: Calendar },
+  ]
+
   return (
-    <div className="ocr-jobs-view">
-      {/* Top Header */}
-      <div className="section-header">
-        <div className="header-title-group">
-          <h2><Cpu size={22} /> Extraction & Lobby Processing Hub</h2>
-          <span className="subtitle">Real-time log tracking, OpenRouter cost reporting in INR (₹), and date-wise analytics</span>
-        </div>
-        <div className="header-actions">
-          {/* Currency Switcher */}
-          <button
-            className="currency-toggle-btn"
-            onClick={() => setCurrency(c => c === 'INR' ? 'USD' : 'INR')}
-            title="Switch Currency"
-          >
-            <Coins size={14} /> Currency: <strong>{currency === 'INR' ? '₹ INR' : '$ USD'}</strong>
-          </button>
-          <button className="icon-button" onClick={fetchJobs} title="Refresh Jobs">
-            <RefreshCcw size={18} />
-          </button>
-        </div>
-      </div>
+    <div className="job-page">
+      {/* ── Hero ── */}
+      <section className="job-hero" aria-labelledby="job-title">
+        <header className="job-hero-head">
+          <div>
+            <span className="job-eyebrow"><Cpu size={12} /> AI compute</span>
+            <h1 id="job-title" className="job-title">OCR Jobs</h1>
+            <p className="job-subtitle">
+              Extraction and lobby-processing runs, token usage and OpenRouter cost reporting.
+            </p>
+          </div>
+          <div className="job-head-actions">
+            <span className={`job-live ${loading ? 'is-refreshing' : ''}`}>
+              <span className="job-live-dot" aria-hidden="true" />
+              {loading ? 'Syncing…' : `${jobs.length.toLocaleString('en-IN')} jobs indexed`}
+            </span>
+            <button type="button" className="job-action" onClick={() => setCurrency(c => c === 'INR' ? 'USD' : 'INR')} title="Switch currency">
+              <Coins size={14} /> {currency === 'INR' ? '₹ INR' : '$ USD'}
+            </button>
+            <button type="button" className="job-action" onClick={fetchJobs} disabled={loading}>
+              <RefreshCcw size={14} className={loading ? 'job-spin' : ''} /> Refresh
+            </button>
+          </div>
+        </header>
 
-      {error && <div className="alert alert-error"><XCircle size={16} /> {error}</div>}
+        {error && (
+          <div className="job-error" role="alert">
+            <AlertTriangle size={16} />
+            <span>{error}</span>
+            <button type="button" className="job-retry" onClick={fetchJobs}>
+              <RefreshCcw size={13} /> Retry
+            </button>
+          </div>
+        )}
 
-      {/* Date Range Quick Filter Pills */}
-      <div className="date-filter-section">
-        <div className="date-filter-header">
-          <Calendar size={16} className="date-icon" />
-          <span className="date-label">Date Filter:</span>
+        <div className="job-kpi-grid" aria-live="polite">
+          {cards.map(({ key, label, value, meta, icon, tone, title }) => {
+            const Icon = icon
+            return (
+              <div key={key} className="job-kpi" title={title}>
+                <span className="job-kpi-top">
+                  <span className={`job-kpi-icon ${tone}`}><Icon size={18} /></span>
+                  <span className="job-kpi-label">{label}</span>
+                </span>
+                <span className="job-kpi-value">{value}</span>
+                <span className="job-kpi-meta">{meta}</span>
+              </div>
+            )
+          })}
         </div>
-        <div className="date-pills">
+      </section>
+
+      {/* ── Date range ── */}
+      <section className="job-panel" aria-label="Date filter">
+        <header className="job-panel-head">
+          <h2 className="job-panel-title"><Calendar size={14} /> Date range</h2>
+          {dateFilter === 'custom' && (
+            <div className="job-custom-dates">
+              <label>
+                <span>From</span>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={e => setCustomStartDate(e.target.value)}
+                  className="job-date-input"
+                />
+              </label>
+              <label>
+                <span>To</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={e => setCustomEndDate(e.target.value)}
+                  className="job-date-input"
+                />
+              </label>
+            </div>
+          )}
+        </header>
+        <div className="job-date-pills">
           {[
             { key: 'all', label: 'All Time' },
             { key: 'today', label: 'Today' },
@@ -442,139 +545,57 @@ const OCRJobsView = ({ addLog }) => {
           ].map(p => (
             <button
               key={p.key}
+              type="button"
               onClick={() => setDateFilter(p.key)}
-              className={`date-pill ${dateFilter === p.key ? 'active' : ''}`}
+              className={`job-date-pill ${dateFilter === p.key ? 'active' : ''}`}
             >
               {p.label}
             </button>
           ))}
         </div>
+      </section>
 
-        {dateFilter === 'custom' && (
-          <div className="custom-date-inputs">
-            <div className="date-input-group">
-              <label>From:</label>
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={e => setCustomStartDate(e.target.value)}
-                className="date-input"
-              />
-            </div>
-            <div className="date-input-group">
-              <label>To:</label>
-              <input
-                type="date"
-                value={customEndDate}
-                onChange={e => setCustomEndDate(e.target.value)}
-                className="date-input"
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      {/* ── Analytics ── */}
+      <section className="job-panel" aria-label="Cost analytics">
+        <header className="job-panel-head">
+          <h2 className="job-panel-title"><BarChart3 size={14} /> Cost analytics</h2>
+          <nav className="job-tabs" aria-label="Analytics sections">
+            {ANALYTICS_TABS.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                className={`job-tab ${activeAnalyticsTab === key ? 'active' : ''}`}
+                onClick={() => setActiveAnalyticsTab(key)}
+              >
+                <Icon size={13} /> {label}
+              </button>
+            ))}
+          </nav>
+        </header>
 
-      {/* Analytics Metric Cards */}
-      <div className="ocr-stats-grid">
-        <div className="stat-card">
-          <div className="stat-icon jobs-icon"><Layers size={22} /></div>
-          <div className="stat-info">
-            <span className="stat-label">Total Filtered Jobs</span>
-            <span className="stat-value">{stats.total}</span>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon success-icon"><CheckCircle2 size={22} /></div>
-          <div className="stat-info">
-            <span className="stat-label">Success Rate</span>
-            <span className="stat-value">{stats.successRate}% <span className="stat-sub">({stats.doneCount} ok / {stats.failedCount} fail)</span></span>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon input-token-icon"><ArrowDownRight size={22} /></div>
-          <div className="stat-info">
-            <span className="stat-label">Input Tokens</span>
-            <span className="stat-value">{(stats.totalInputTokens / 1000).toFixed(1)}k</span>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon output-token-icon"><ArrowUpRight size={22} /></div>
-          <div className="stat-info">
-            <span className="stat-label">Output Tokens</span>
-            <span className="stat-value">{(stats.totalOutputTokens / 1000).toFixed(1)}k</span>
-          </div>
-        </div>
-        <div className="stat-card hero-cost-card">
-          <div className="stat-icon cost-icon"><Coins size={22} /></div>
-          <div className="stat-info">
-            <span className="stat-label">Total AI Cost ({currency})</span>
-            <span className="stat-value cost-highlight">{formatCost(stats.totalCostUSD)}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Top 4 Analytics & Daily Cost Ledger Section */}
-      <div className="top4-analytics-section">
-        <div className="analytics-tabs-header">
-          <button
-            className={`analytics-tab ${activeAnalyticsTab === 'top_users' ? 'active' : ''}`}
-            onClick={() => setActiveAnalyticsTab('top_users')}
-          >
-            <User size={15} /> Top 4 Users by Cost
-          </button>
-          <button
-            className={`analytics-tab ${activeAnalyticsTab === 'top_lobbies' ? 'active' : ''}`}
-            onClick={() => setActiveAnalyticsTab('top_lobbies')}
-          >
-            <Trophy size={15} /> Top 4 Lobbies by Cost
-          </button>
-          <button
-            className={`analytics-tab ${activeAnalyticsTab === 'job_types' ? 'active' : ''}`}
-            onClick={() => setActiveAnalyticsTab('job_types')}
-          >
-            <BarChart3 size={15} /> Job Type Split
-          </button>
-          <button
-            className={`analytics-tab ${activeAnalyticsTab === 'daily_ledger' ? 'active' : ''}`}
-            onClick={() => setActiveAnalyticsTab('daily_ledger')}
-          >
-            <Calendar size={15} /> Daily Cost Ledger ({dailyCostLedger.length} days)
-          </button>
-        </div>
-
-        <div className="analytics-tab-content">
+        <div className="job-tab-body">
           {/* Top 4 Users */}
           {activeAnalyticsTab === 'top_users' && (
-            <div className="top4-grid">
+            <div className="job-rank-grid">
               {top4Users.length === 0 ? (
-                <div className="empty-state"><p>No user cost records for this filter period.</p></div>
+                <p className="job-empty">No user cost records for this filter period.</p>
               ) : (
                 top4Users.map((item, idx) => (
-                  <div key={item.userId} className={`top4-card rank-${idx + 1}`}>
-                    <div className="rank-badge">#{idx + 1}</div>
-                    <div className="top4-card-header">
-                      <span className="top4-user-name">
-                        {item.profile?.display_name || item.profile?.username || 'Unknown User'}
-                      </span>
-                      <span className="top4-user-email">{item.profile?.emails || item.userId.slice(0, 8)}</span>
+                  <div key={item.userId} className={`job-rank-card rank-${idx + 1}`}>
+                    <div className="job-rank-head">
+                      <span className="job-rank-badge">#{idx + 1}</span>
+                      <div className="job-rank-name-wrap">
+                        <span className="job-rank-name">
+                          {item.profile?.display_name || item.profile?.username || 'Unknown User'}
+                        </span>
+                        <span className="job-rank-sub">{item.profile?.emails || item.userId.slice(0, 8)}</span>
+                      </div>
+                      <span className="job-rank-cost">{formatCost(item.totalCostUSD)}</span>
                     </div>
-                    <div className="top4-card-metrics">
-                      <div className="metric-row">
-                        <span className="lbl"><Layers size={13} /> Jobs Executed:</span>
-                        <span className="val">{item.jobCount}</span>
-                      </div>
-                      <div className="metric-row">
-                        <span className="lbl"><ArrowDownRight size={13} /> Input Tokens:</span>
-                        <span className="val">{item.inputTokens.toLocaleString()}</span>
-                      </div>
-                      <div className="metric-row">
-                        <span className="lbl"><ArrowUpRight size={13} /> Output Tokens:</span>
-                        <span className="val">{item.outputTokens.toLocaleString()}</span>
-                      </div>
-                      <div className="metric-row cost-row">
-                        <span className="lbl"><Coins size={13} /> Total Cost ({currency}):</span>
-                        <span className="val cost-val">{formatCost(item.totalCostUSD)}</span>
-                      </div>
+                    <div className="job-rank-metrics">
+                      <span><Layers size={12} /> {item.jobCount} jobs</span>
+                      <span><ArrowDownRight size={12} /> {item.inputTokens.toLocaleString()} in</span>
+                      <span><ArrowUpRight size={12} /> {item.outputTokens.toLocaleString()} out</span>
                     </div>
                   </div>
                 ))
@@ -584,36 +605,24 @@ const OCRJobsView = ({ addLog }) => {
 
           {/* Top 4 Lobbies */}
           {activeAnalyticsTab === 'top_lobbies' && (
-            <div className="top4-grid">
+            <div className="job-rank-grid">
               {top4Lobbies.length === 0 ? (
-                <div className="empty-state"><p>No lobby cost records for this filter period.</p></div>
+                <p className="job-empty">No lobby cost records for this filter period.</p>
               ) : (
                 top4Lobbies.map((item, idx) => (
-                  <div key={item.lobbyId} className={`top4-card rank-${idx + 1}`}>
-                    <div className="rank-badge">#{idx + 1}</div>
-                    <div className="top4-card-header">
-                      <span className="top4-user-name">
-                        {item.lobby?.name || 'Unnamed Lobby'}
-                      </span>
-                      <span className="top4-user-email">Game: {item.lobby?.game || 'N/A'} • ID: {item.lobbyId.slice(0, 8)}</span>
+                  <div key={item.lobbyId} className={`job-rank-card rank-${idx + 1}`}>
+                    <div className="job-rank-head">
+                      <span className="job-rank-badge">#{idx + 1}</span>
+                      <div className="job-rank-name-wrap">
+                        <span className="job-rank-name">{item.lobby?.name || 'Unnamed Lobby'}</span>
+                        <span className="job-rank-sub">{item.lobby?.game || 'N/A'} · {item.lobbyId.slice(0, 8)}</span>
+                      </div>
+                      <span className="job-rank-cost">{formatCost(item.totalCostUSD)}</span>
                     </div>
-                    <div className="top4-card-metrics">
-                      <div className="metric-row">
-                        <span className="lbl"><Layers size={13} /> OCR Requests:</span>
-                        <span className="val">{item.jobCount}</span>
-                      </div>
-                      <div className="metric-row">
-                        <span className="lbl"><ArrowDownRight size={13} /> Input Tokens:</span>
-                        <span className="val">{item.inputTokens.toLocaleString()}</span>
-                      </div>
-                      <div className="metric-row">
-                        <span className="lbl"><ArrowUpRight size={13} /> Output Tokens:</span>
-                        <span className="val">{item.outputTokens.toLocaleString()}</span>
-                      </div>
-                      <div className="metric-row cost-row">
-                        <span className="lbl"><Coins size={13} /> Lobby AI Cost ({currency}):</span>
-                        <span className="val cost-val">{formatCost(item.totalCostUSD)}</span>
-                      </div>
+                    <div className="job-rank-metrics">
+                      <span><Layers size={12} /> {item.jobCount} OCR requests</span>
+                      <span><ArrowDownRight size={12} /> {item.inputTokens.toLocaleString()} in</span>
+                      <span><ArrowUpRight size={12} /> {item.outputTokens.toLocaleString()} out</span>
                     </div>
                   </div>
                 ))
@@ -623,29 +632,31 @@ const OCRJobsView = ({ addLog }) => {
 
           {/* Job Type Split */}
           {activeAnalyticsTab === 'job_types' && (
-            <div className="job-types-split-grid">
+            <div className="job-split-grid">
               {jobTypeSplit.map(split => (
-                <div key={split.type} className={`split-card type-${split.type}`}>
-                  <div className="split-header">
-                    {split.type === 'extract_results' ? <FileText size={20} /> : <Cpu size={20} />}
-                    <h4>{split.label}</h4>
+                <div key={split.type} className="job-split-card">
+                  <div className="job-split-head">
+                    <span className="job-split-icon">
+                      {split.type === 'extract_results' ? <FileText size={16} /> : <Cpu size={16} />}
+                    </span>
+                    <div>
+                      <h4>{split.label}</h4>
+                      <span className="job-split-sub">{split.type}</span>
+                    </div>
+                    <span className="job-rank-cost">{formatCost(split.costUSD)}</span>
                   </div>
-                  <div className="split-metrics">
-                    <div className="split-metric">
-                      <span className="label">Executions</span>
-                      <span className="value">{split.jobs}</span>
+                  <div className="job-split-metrics">
+                    <div className="job-split-metric">
+                      <span>Executions</span>
+                      <strong>{split.jobs}</strong>
                     </div>
-                    <div className="split-metric">
-                      <span className="label">Input Tokens</span>
-                      <span className="value">{(split.inputTokens / 1000).toFixed(1)}k</span>
+                    <div className="job-split-metric">
+                      <span>Input tokens</span>
+                      <strong>{kTokens(split.inputTokens)}</strong>
                     </div>
-                    <div className="split-metric">
-                      <span className="label">Output Tokens</span>
-                      <span className="value">{(split.outputTokens / 1000).toFixed(1)}k</span>
-                    </div>
-                    <div className="split-metric highlight">
-                      <span className="label">Total Cost ({currency})</span>
-                      <span className="value cost">{formatCost(split.costUSD)}</span>
+                    <div className="job-split-metric">
+                      <span>Output tokens</span>
+                      <strong>{kTokens(split.outputTokens)}</strong>
                     </div>
                   </div>
                 </div>
@@ -655,11 +666,11 @@ const OCRJobsView = ({ addLog }) => {
 
           {/* Daily Cost Ledger */}
           {activeAnalyticsTab === 'daily_ledger' && (
-            <div className="daily-ledger-container">
+            <div className="job-ledger">
               {dailyCostLedger.length === 0 ? (
-                <div className="empty-state"><p>No daily cost entries for this filter period.</p></div>
+                <p className="job-empty">No daily cost entries for this filter period.</p>
               ) : (
-                <table className="users-table ledger-table">
+                <table className="users-table job-ledger-table">
                   <thead>
                     <tr>
                       <th>Date</th>
@@ -673,17 +684,17 @@ const OCRJobsView = ({ addLog }) => {
                   <tbody>
                     {dailyCostLedger.map(day => (
                       <tr key={day.date}>
-                        <td className="date-cell">
+                        <td className="job-date-cell">
                           <Calendar size={13} /> {new Date(day.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
                         </td>
-                        <td><strong>{day.jobsCount}</strong> jobs</td>
+                        <td><strong>{day.jobsCount}</strong></td>
                         <td>
-                          <span className="status-pill ok"><CheckCircle2 size={11} /> {day.doneCount}</span>
-                          {day.failedCount > 0 && <span className="status-pill err"><XCircle size={11} /> {day.failedCount}</span>}
+                          <span className="job-mini-pill ok"><CheckCircle2 size={11} /> {day.doneCount}</span>
+                          {day.failedCount > 0 && <span className="job-mini-pill err"><XCircle size={11} /> {day.failedCount}</span>}
                         </td>
-                        <td>{day.inputTokens.toLocaleString()} in</td>
-                        <td>{day.outputTokens.toLocaleString()} out</td>
-                        <td className="cost-cell">{formatCost(day.totalCostUSD)}</td>
+                        <td>{day.inputTokens.toLocaleString()}</td>
+                        <td>{day.outputTokens.toLocaleString()}</td>
+                        <td className="job-cost-cell">{formatCost(day.totalCostUSD)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -692,279 +703,281 @@ const OCRJobsView = ({ addLog }) => {
             </div>
           )}
         </div>
-      </div>
+      </section>
 
-      {/* Filter Controls & OpenRouter Model Selector */}
-      <div className="ocr-filter-bar">
-        <div className="search-bar flex-1">
-          <div className="search-icon-wrapper"><Search size={18} /></div>
-          <input
-            type="text"
-            placeholder="Search by Job ID, Lobby ID, User, or Error..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="search-input"
-          />
-          {searchQuery && (
-            <button className="clear-search" onClick={() => setSearchQuery('')}>
-              <XCircle size={18} />
-            </button>
-          )}
+      {/* ── Jobs table ── */}
+      <section className="job-panel" aria-label="OCR jobs">
+        <header className="job-panel-head">
+          <h2 className="job-panel-title"><Layers size={14} /> Job log</h2>
+          <span className="job-panel-hint">{filteredJobs.length.toLocaleString('en-IN')} of {jobs.length.toLocaleString('en-IN')} jobs</span>
+        </header>
+
+        <div className="job-filter-bar">
+          <div className="job-search">
+            <Search size={15} className="job-search-icon" />
+            <input
+              type="text"
+              placeholder="Search by job ID, lobby ID, user, or error…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button type="button" className="job-search-clear" onClick={() => setSearchQuery('')} aria-label="Clear search">
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          <div className="job-filter-group">
+            <label className="job-filter-label"><Server size={12} /> Model rate</label>
+            <select
+              className="job-select"
+              value={selectedModelId}
+              onChange={e => setSelectedModelId(e.target.value)}
+            >
+              {openRouterModels.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({formatRate(m.inputRate)} in / {formatRate(m.outputRate)} out per 1M)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="job-filter-group">
+            <label className="job-filter-label">Job type</label>
+            <select
+              className="job-select"
+              value={jobTypeFilter}
+              onChange={e => setJobTypeFilter(e.target.value)}
+            >
+              <option value="all">All types ({jobs.length})</option>
+              <option value="extract_results">extract_results ({stats.extractResultsCount})</option>
+              <option value="process_lobby">process_lobby ({stats.processLobbyCount})</option>
+            </select>
+          </div>
+
+          <div className="job-filter-group">
+            <label className="job-filter-label">Status</label>
+            <select
+              className="job-select"
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+            >
+              <option value="all">All statuses</option>
+              <option value="done">Done ({stats.doneCount})</option>
+              <option value="failed">Failed ({stats.failedCount})</option>
+            </select>
+          </div>
         </div>
 
-        {/* OpenRouter Model Selection Preset */}
-        <div className="filter-group openrouter-preset">
-          <label className="filter-label"><Server size={14} /> OpenRouter Model Rate:</label>
-          <select
-            className="filter-select openrouter-select"
-            value={selectedModelId}
-            onChange={e => setSelectedModelId(e.target.value)}
-          >
-            {openRouterModels.map(m => (
-              <option key={m.id} value={m.id}>
-                {m.name} ({formatRate(m.inputRate)} in / {formatRate(m.outputRate)} out per 1M)
-              </option>
-            ))}
-          </select>
+        <div className="job-model-note">
+          <Info size={13} />
+          <span>
+            Calculated in <strong>{currency === 'INR' ? 'INR (₹)' : 'USD ($)'}</strong> via OpenRouter ({currentModelConfig.name}):
+            {' '}{formatRate(currentModelConfig.inputRate)} / 1M input · {formatRate(currentModelConfig.outputRate)} / 1M output
+            {currency === 'INR' ? ` · exchange rate ₹${inrRate.toFixed(2)} per $1 USD` : ''}
+            {livePricingLoaded ? ' · live pricing' : ''}
+          </span>
         </div>
 
-        <div className="filter-group">
-          <label className="filter-label">Job Type:</label>
-          <select
-            className="filter-select"
-            value={jobTypeFilter}
-            onChange={e => setJobTypeFilter(e.target.value)}
-          >
-            <option value="all">All Types ({jobs.length})</option>
-            <option value="extract_results">extract_results ({stats.extractResultsCount})</option>
-            <option value="process_lobby">process_lobby ({stats.processLobbyCount})</option>
-          </select>
-        </div>
-
-        <div className="filter-group">
-          <label className="filter-label">Status:</label>
-          <select
-            className="filter-select"
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-          >
-            <option value="all">All Statuses</option>
-            <option value="done">Done ({stats.doneCount})</option>
-            <option value="failed">Failed ({stats.failedCount})</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Active Model Indicator Banner */}
-      <div className="openrouter-active-banner">
-        <Sparkles size={14} />
-        <span>Calculated in <strong>{currency === 'INR' ? 'INR (₹)' : 'USD ($)'}</strong> via OpenRouter ({currentModelConfig.name}): {formatRate(currentModelConfig.inputRate)} / 1M Input Tokens • {formatRate(currentModelConfig.outputRate)} / 1M Output Tokens {currency === 'INR' ? `• (Exchange rate: ₹${inrRate.toFixed(2)} per $1 USD)` : ''}</span>
-      </div>
-
-      {/* Jobs Table with Explicit Input/Output Tokens & Cost Columns */}
-      <div className="jobs-table-container">
         {loading ? (
-          <div className="loading-container">
-            <div className="loading-spinner"></div>
-            <p>Loading OCR jobs...</p>
+          <div className="job-loading">
+            <div className="job-spinner" />
+            <p>Loading OCR jobs…</p>
           </div>
         ) : filteredJobs.length === 0 ? (
-          <div className="empty-state">
-            <p>{searchQuery || jobTypeFilter !== 'all' || statusFilter !== 'all' || dateFilter !== 'all' ? 'No jobs match your search/filter criteria' : 'No OCR jobs recorded yet'}</p>
-          </div>
+          <p className="job-empty">
+            {searchQuery || jobTypeFilter !== 'all' || statusFilter !== 'all' || dateFilter !== 'all'
+              ? 'No jobs match your search/filter criteria'
+              : 'No OCR jobs recorded yet'}
+          </p>
         ) : (
-          <table className="users-table ocr-table">
-            <thead>
-              <tr>
-                <th>Job Type</th>
-                <th>Status</th>
-                <th>Lobby</th>
-                <th>User / Organizer</th>
-                <th>Input Tokens</th>
-                <th>Output Tokens</th>
-                <th>Cost ({currency === 'INR' ? '₹' : '$'})</th>
-                <th>Created At</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredJobs.map(job => {
-                const profile = profilesMap[job.user_id]
-                const lobby = lobbiesMap[job.lobby_id]
-                const isFailed = job.status === 'failed'
-                const imagesCount = Array.isArray(job.image_urls) ? job.image_urls.length : 0
+          <div className="job-table-wrap">
+            <table className="users-table job-table">
+              <thead>
+                <tr>
+                  <th>Job Type</th>
+                  <th>Status</th>
+                  <th>Lobby</th>
+                  <th>User / Organizer</th>
+                  <th>Input Tokens</th>
+                  <th>Output Tokens</th>
+                  <th>Cost ({currency === 'INR' ? '₹' : '$'})</th>
+                  <th>Created At</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredJobs.map(job => {
+                  const profile = profilesMap[job.user_id]
+                  const lobby = lobbiesMap[job.lobby_id]
+                  const isFailed = job.status === 'failed'
 
-                const inputTokens = job.token_usage?.input_tokens || 0
-                const outputTokens = job.token_usage?.output_tokens || 0
-                const jobCostUSD = calculateJobCostUSD(job.token_usage, currentModelConfig)
+                  const inputTokens = job.token_usage?.input_tokens || 0
+                  const outputTokens = job.token_usage?.output_tokens || 0
+                  const jobCostUSD = calculateJobCostUSD(job.token_usage, currentModelConfig)
 
-                return (
-                  <tr key={job.id} className={isFailed ? 'row-failed' : ''}>
-                    <td>
-                      <span className={`job-type-chip chip-${job.job_type}`}>
-                        {job.job_type === 'extract_results' ? <FileText size={13} /> : <Cpu size={13} />}
-                        {job.job_type}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`job-status-chip status-${job.status}`}>
-                        {job.status === 'done' && <CheckCircle2 size={13} />}
-                        {job.status === 'failed' && <AlertTriangle size={13} />}
-                        {job.status === 'processing' && <Clock size={13} />}
-                        {job.status}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="cell-lobby">
-                        <span className="lobby-name">{lobby?.name || 'Unnamed Lobby'}</span>
-                        <span className="cell-sub"><Trophy size={11} /> {job.lobby_id ? job.lobby_id.slice(0, 8) + '...' : 'N/A'}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="cell-user">
-                        <span className="user-name">{profile?.display_name || profile?.username || 'Unknown User'}</span>
-                        <span className="cell-sub">{profile?.emails || (job.user_id ? job.user_id.slice(0, 8) + '...' : 'N/A')}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className="token-pill pill-input">
-                        <ArrowDownRight size={11} /> {inputTokens.toLocaleString()} in
-                      </span>
-                    </td>
-                    <td>
-                      <span className="token-pill pill-output">
-                        <ArrowUpRight size={11} /> {outputTokens.toLocaleString()} out
-                      </span>
-                    </td>
-                    <td>
-                      <span className="token-pill pill-cost">
-                        {formatCost(jobCostUSD)}
-                      </span>
-                    </td>
-                    <td className="cell-time">
-                      {new Date(job.created_at).toLocaleString(undefined, {
-                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
-                      })}
-                    </td>
-                    <td>
-                      <button
-                        className="view-job-button"
-                        onClick={() => setSelectedJob(job)}
-                      >
-                        <Eye size={15} /> Inspect
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                  return (
+                    <tr key={job.id} className={isFailed ? 'row-failed' : ''}>
+                      <td>
+                        <span className={`job-type-chip chip-${job.job_type}`}>
+                          {job.job_type === 'extract_results' ? <FileText size={12} /> : <Cpu size={12} />}
+                          {job.job_type}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`job-status-chip status-${job.status}`}>
+                          {job.status === 'done' && <CheckCircle2 size={12} />}
+                          {job.status === 'failed' && <AlertTriangle size={12} />}
+                          {job.status === 'processing' && <Clock size={12} />}
+                          {job.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="job-cell-stack">
+                          <span className="job-cell-name">{lobby?.name || 'Unnamed Lobby'}</span>
+                          <span className="job-cell-sub">{job.lobby_id ? job.lobby_id.slice(0, 8) + '…' : 'N/A'}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="job-cell-stack">
+                          <span className="job-cell-name">{profile?.display_name || profile?.username || 'Unknown User'}</span>
+                          <span className="job-cell-sub">{profile?.emails || (job.user_id ? job.user_id.slice(0, 8) + '…' : 'N/A')}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="job-token-pill in"><ArrowDownRight size={11} /> {inputTokens.toLocaleString()}</span>
+                      </td>
+                      <td>
+                        <span className="job-token-pill out"><ArrowUpRight size={11} /> {outputTokens.toLocaleString()}</span>
+                      </td>
+                      <td>
+                        <span className="job-token-pill cost">{formatCost(jobCostUSD)}</span>
+                      </td>
+                      <td className="job-time-cell">
+                        {new Date(job.created_at).toLocaleString(undefined, {
+                          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
+                        })}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="job-inspect-btn"
+                          onClick={() => setSelectedJob(job)}
+                        >
+                          <Eye size={14} /> Inspect
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
+      </section>
 
-      {/* Modal Inspector for Selected Job */}
+      {/* ── Modal Inspector for Selected Job ── */}
       {selectedJob && (
         <div className="modal-overlay" onClick={() => setSelectedJob(null)}>
-          <div className="modal-dialog ocr-job-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title">
+          <div className="job-modal" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="job-modal-head">
+              <div className="job-modal-title">
                 <span className={`job-type-chip chip-${selectedJob.job_type}`}>
-                  {selectedJob.job_type === 'extract_results' ? <FileText size={14} /> : <Cpu size={14} />}
+                  {selectedJob.job_type === 'extract_results' ? <FileText size={12} /> : <Cpu size={12} />}
                   {selectedJob.job_type}
                 </span>
-                <h3>Job Details</h3>
+                <h3>Job details</h3>
                 <span className={`job-status-chip status-${selectedJob.status}`}>
                   {selectedJob.status}
                 </span>
               </div>
-              <button className="close-button" onClick={() => setSelectedJob(null)}>
-                <XCircle size={20} />
+              <button type="button" className="job-modal-close" onClick={() => setSelectedJob(null)} aria-label="Close job details">
+                <X size={18} />
               </button>
             </div>
 
-            <div className="modal-body">
+            <div className="job-modal-body">
               {/* Meta Grid */}
               <div className="job-meta-grid">
-                <div className="meta-item">
-                  <span className="meta-label">Job ID</span>
-                  <span className="meta-value code-font">{selectedJob.id}</span>
+                <div className="job-meta-item">
+                  <span>Job ID</span>
+                  <strong className="is-mono">{selectedJob.id}</strong>
                 </div>
-                <div className="meta-item">
-                  <span className="meta-label">Lobby ID</span>
-                  <span className="meta-value code-font">
+                <div className="job-meta-item">
+                  <span>Lobby ID</span>
+                  <strong className="is-mono">
                     {lobbiesMap[selectedJob.lobby_id]?.name ? `${lobbiesMap[selectedJob.lobby_id].name} (${selectedJob.lobby_id})` : selectedJob.lobby_id || 'N/A'}
-                  </span>
+                  </strong>
                 </div>
-                <div className="meta-item">
-                  <span className="meta-label">User ID</span>
-                  <span className="meta-value code-font">
+                <div className="job-meta-item">
+                  <span>User ID</span>
+                  <strong className="is-mono">
                     {profilesMap[selectedJob.user_id]?.display_name ? `${profilesMap[selectedJob.user_id].display_name} (${selectedJob.user_id})` : selectedJob.user_id || 'N/A'}
-                  </span>
+                  </strong>
                 </div>
-                <div className="meta-item">
-                  <span className="meta-label">Created At</span>
-                  <span className="meta-value">{new Date(selectedJob.created_at).toLocaleString()}</span>
+                <div className="job-meta-item">
+                  <span>Created At</span>
+                  <strong>{new Date(selectedJob.created_at).toLocaleString()}</strong>
                 </div>
               </div>
 
               {/* Error Traceback Block */}
               {selectedJob.error && (
                 <div className="job-error-block">
-                  <div className="error-header">
-                    <span><AlertTriangle size={16} /> Error Execution Stack</span>
-                    <button
-                      className="copy-btn"
-                      onClick={() => copyToClipboard(selectedJob.error)}
-                    >
-                      <Copy size={13} /> {copied ? 'Copied!' : 'Copy Error'}
+                  <div className="job-error-head">
+                    <span><AlertTriangle size={14} /> Error execution stack</span>
+                    <button type="button" className="job-copy-btn" onClick={() => copyToClipboard(selectedJob.error)}>
+                      <Copy size={12} /> {copied ? 'Copied!' : 'Copy error'}
                     </button>
                   </div>
-                  <pre className="error-code">{selectedJob.error}</pre>
+                  <pre>{selectedJob.error}</pre>
                 </div>
               )}
 
-              {/* Explicit Token Usage & Cost Breakdown Card in INR */}
-              <div className="token-usage-card">
-                <h4><Coins size={16} /> Token Consumption & OpenRouter Cost Breakdown ({currency})</h4>
-                <div className="token-stats-row">
-                  <div className="token-stat">
-                    <span className="lbl"><ArrowDownRight size={12} /> Input Tokens</span>
-                    <span className="val color-input">{(selectedJob.token_usage?.input_tokens || 0).toLocaleString()}</span>
+              {/* Token Usage & Cost Breakdown */}
+              <div className="job-usage-card">
+                <h4><Coins size={14} /> Token consumption &amp; cost breakdown ({currency})</h4>
+                <div className="job-usage-stats">
+                  <div className="job-usage-stat">
+                    <span><ArrowDownRight size={12} /> Input</span>
+                    <strong className="tone-in">{(selectedJob.token_usage?.input_tokens || 0).toLocaleString()}</strong>
                   </div>
-                  <div className="token-stat">
-                    <span className="lbl"><ArrowUpRight size={12} /> Output Tokens</span>
-                    <span className="val color-output">{(selectedJob.token_usage?.output_tokens || 0).toLocaleString()}</span>
+                  <div className="job-usage-stat">
+                    <span><ArrowUpRight size={12} /> Output</span>
+                    <strong className="tone-out">{(selectedJob.token_usage?.output_tokens || 0).toLocaleString()}</strong>
                   </div>
-                  <div className="token-stat">
-                    <span className="lbl"><Layers size={12} /> Total Tokens</span>
-                    <span className="val">{(selectedJob.token_usage?.total_tokens || ((selectedJob.token_usage?.input_tokens || 0) + (selectedJob.token_usage?.output_tokens || 0))).toLocaleString()}</span>
+                  <div className="job-usage-stat">
+                    <span><Layers size={12} /> Total</span>
+                    <strong>{(selectedJob.token_usage?.total_tokens || ((selectedJob.token_usage?.input_tokens || 0) + (selectedJob.token_usage?.output_tokens || 0))).toLocaleString()}</strong>
                   </div>
-                  <div className="token-stat">
-                    <span className="lbl"><Coins size={12} /> Total Cost ({currency})</span>
-                    <span className="val color-cost">{formatCost(calculateJobCostUSD(selectedJob.token_usage, currentModelConfig))}</span>
+                  <div className="job-usage-stat">
+                    <span><Coins size={12} /> Cost</span>
+                    <strong className="tone-cost">{formatCost(calculateJobCostUSD(selectedJob.token_usage, currentModelConfig))}</strong>
                   </div>
                 </div>
-                <div className="token-rate-note">
-                  <Info size={12} /> OpenRouter Model ({currentModelConfig.name}): {formatRate(currentModelConfig.inputRate)} / 1M Input • {formatRate(currentModelConfig.outputRate)} / 1M Output {currency === 'INR' ? `(Exchange rate: ₹${inrRate.toFixed(2)} per $1 USD)` : ''}
+                <div className="job-usage-note">
+                  <Info size={12} />
+                  <span>{currentModelConfig.name}: {formatRate(currentModelConfig.inputRate)} / 1M input · {formatRate(currentModelConfig.outputRate)} / 1M output{currency === 'INR' ? ` (₹${inrRate.toFixed(2)}/USD)` : ''}</span>
                 </div>
               </div>
 
               {/* Image URLs Gallery */}
               {Array.isArray(selectedJob.image_urls) && selectedJob.image_urls.length > 0 && (
-                <div className="job-images-section">
-                  <h4><ImageIcon size={16} /> Submitted Scoreboard Screenshots ({selectedJob.image_urls.length})</h4>
-                  <div className="image-urls-grid">
+                <div className="job-modal-section">
+                  <h4><ImageIcon size={14} /> Submitted scoreboard screenshots ({selectedJob.image_urls.length})</h4>
+                  <div className="job-images">
                     {selectedJob.image_urls.map((imgUrl, idx) => (
                       <a
                         key={idx}
                         href={imgUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="image-url-card"
+                        className="job-image-link"
                       >
-                        <ImageIcon size={16} />
-                        <span className="url-text">{imgUrl}</span>
-                        <ChevronRight size={14} />
+                        <ImageIcon size={14} />
+                        <span>{imgUrl}</span>
+                        <ChevronRight size={13} />
                       </a>
                     ))}
                   </div>
@@ -972,17 +985,14 @@ const OCRJobsView = ({ addLog }) => {
               )}
 
               {/* Result JSON Payload */}
-              <div className="job-payload-section">
-                <div className="payload-header">
-                  <h4><Layers size={16} /> Extracted Result Payload</h4>
-                  <button
-                    className="copy-btn"
-                    onClick={() => copyToClipboard(formatJSON(selectedJob.result))}
-                  >
-                    <Copy size={13} /> Copy JSON
+              <div className="job-modal-section">
+                <div className="job-modal-section-head">
+                  <h4><Layers size={14} /> Extracted result payload</h4>
+                  <button type="button" className="job-copy-btn" onClick={() => copyToClipboard(formatJSON(selectedJob.result))}>
+                    <Copy size={12} /> Copy JSON
                   </button>
                 </div>
-                <pre className="json-pre">{formatJSON(selectedJob.result || {})}</pre>
+                <pre className="job-json">{formatJSON(selectedJob.result || {})}</pre>
               </div>
             </div>
           </div>

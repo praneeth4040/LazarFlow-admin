@@ -208,7 +208,7 @@ const DuplicatesPanel = ({ themes, onClose, onDeleted }) => {
               <p>{dupGroups.length} groups · {themes.filter(t => selected.has(t.id)).length} selected to delete</p>
             </div>
           </div>
-          <button className="drawer-close-btn" onClick={onClose}><X size={18} /></button>
+          <button className="drawer-close-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
 
         {error && (
@@ -397,10 +397,11 @@ const ThemeDetailDrawer = ({ theme: initialTheme, onClose, onUpdated, onDeleted 
   }, [])
 
   useEffect(() => {
-    const fn = (e) => { if (e.key === 'Escape' && !confirmDelete && !lightboxUrl) onClose() }
+    // mappingOpen → the mapping editor handles Escape itself (deselect → close)
+    const fn = (e) => { if (e.key === 'Escape' && !confirmDelete && !lightboxUrl && !mappingOpen) onClose() }
     window.addEventListener('keydown', fn)
     return () => window.removeEventListener('keydown', fn)
-  }, [onClose, confirmDelete, lightboxUrl])
+  }, [onClose, confirmDelete, lightboxUrl, mappingOpen])
 
   useEffect(() => () => { if (renderedUrl) URL.revokeObjectURL(renderedUrl) }, [renderedUrl])
 
@@ -533,10 +534,11 @@ const ThemeDetailDrawer = ({ theme: initialTheme, onClose, onUpdated, onDeleted 
                 className="drawer-action-btn delete-btn"
                 onClick={() => setConfirmDelete(true)}
                 title="Delete Theme"
+                aria-label="Delete theme"
               >
                 <Trash2 size={14} />
               </button>
-              <button className="drawer-close-btn" onClick={onClose}><X size={18} /></button>
+              <button className="drawer-close-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
             </div>
           </div>
 
@@ -963,7 +965,7 @@ const ThemeDetailDrawer = ({ theme: initialTheme, onClose, onUpdated, onDeleted 
       {lightboxUrl && (
         <div className="lightbox-overlay" onClick={() => setLightboxUrl(null)}>
           <div className="lightbox-container" onClick={(e) => e.stopPropagation()}>
-            <button className="lightbox-close" onClick={() => setLightboxUrl(null)}><X size={20} /></button>
+            <button className="lightbox-close" onClick={() => setLightboxUrl(null)} aria-label="Close image preview"><X size={20} /></button>
             <img src={lightboxUrl} alt="Full resolution preview" className="lightbox-img" />
           </div>
         </div>
@@ -1046,7 +1048,7 @@ const CreateCommunityThemeModal = ({ onClose, onCreated }) => {
             <Globe size={18} className="ctm-title-icon" />
             <h2>Add Community Theme</h2>
           </div>
-          <button className="ctm-close" onClick={onClose}><X size={18} /></button>
+          <button className="ctm-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
 
         <div className="ctm-body">

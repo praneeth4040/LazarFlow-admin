@@ -169,6 +169,25 @@ const makeEmptyCells = () =>
     mp:    EMPTY_CELL('center'),
   }))
 
+// ── Mapping editor column definitions ────────────────────────────────────────
+// Live here (not in ThemeMappingEditor.jsx) so the Ask AI modal can import
+// them without a circular import.
+
+export const COLUMNS = [
+  { key: 'rank',  label: 'Rank' },
+  { key: 'team',  label: 'Team Name' },
+  { key: 'w',     label: 'Wins' },
+  { key: 'pp',    label: 'Placement Pts' },
+  { key: 'kp',    label: 'Kill Pts' },
+  { key: 'total', label: 'Total' },
+  { key: 'mp',    label: 'Matches Played' },
+]
+
+export const EXTRA_COLUMNS = [
+  { key: 'tournament_name',     label: 'Tournament Name' },
+  { key: 'lazarflow-watermark', label: 'LazarFlow Watermark' },
+]
+
 export const EMPTY_MAPPING_CONFIG = {
   // Schema: cells is an array of 12 row objects.
   // Each row object is keyed by column name → { x, y, alignment, font_size?, font_path?, color_rgb? }
