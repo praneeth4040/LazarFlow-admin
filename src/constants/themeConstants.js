@@ -157,17 +157,67 @@ export const getFontFamily = (fontPath) => {
 // Default cell entry for a single row×column slot
 const EMPTY_CELL = (alignment = 'center') => ({ x: 0, y: 0, alignment })
 
-// Build a blank 12-row cells array
-const makeEmptyCells = () =>
-  Array.from({ length: 12 }, () => ({
-    rank:  EMPTY_CELL('center'),
-    team:  EMPTY_CELL('left'),
-    w:     EMPTY_CELL('center'),
-    pp:    EMPTY_CELL('center'),
-    kp:    EMPTY_CELL('center'),
-    total: EMPTY_CELL('center'),
-    mp:    EMPTY_CELL('center'),
-  }))
+// ── Render types ─────────────────────────────────────────────────────────────
+// Mirror of the app's src/shared/domain/renderTypes.ts — the backend validates
+// renderType against the same registry (service/render_service/render_types.py).
+export const DEFAULT_RENDER_TYPE = 'points_table'
+
+export const RENDER_TYPES = [
+  {
+    id: 'points_table', label: 'Standings', rowLabel: 'Team', hasRows: true,
+    fields: [
+      { key: 'rank',  label: 'Rank',      sample: '1' },
+      { key: 'team',  label: 'Team',      sample: 'Thunder Hawks' },
+      { key: 'w',     label: 'Wins',      sample: '18' },
+      { key: 'pp',    label: 'Placement', sample: '182' },
+      { key: 'kp',    label: 'Kills',     sample: '246' },
+      { key: 'mp',    label: 'Matches',   sample: '6' },
+      { key: 'total', label: 'Total',     sample: '428' },
+    ],
+  },
+  {
+    id: 'mvp', label: 'MVP', rowLabel: 'Player', hasRows: true,
+    fields: [
+      { key: 'rank',   label: 'Rank',   sample: '1' },
+      { key: 'player', label: 'Player', sample: 'SnaxGaming' },
+      { key: 'team',   label: 'Team',   sample: 'Thunder Hawks' },
+      { key: 'kills',  label: 'Kills',  sample: '23' },
+      { key: 'mp',     label: 'Matches', sample: '6' },
+    ],
+  },
+  {
+    id: 'slotlist', label: 'Slots', rowLabel: 'Slot', hasRows: true,
+    fields: [
+      { key: 'slot', label: 'Slot', sample: '1' },
+      { key: 'team', label: 'Team', sample: 'Thunder Hawks' },
+    ],
+  },
+  {
+    id: 'schedule', label: 'Schedule', rowLabel: 'Card', hasRows: false,
+    fields: [
+      { key: 'title',      label: 'Title',        sample: '12PM PRACTICE SCRIMS' },
+      { key: 'idp_time',   label: 'ID Pass Time', sample: '11:45 AM' },
+      { key: 'start_time', label: 'Start Time',   sample: '12:00 PM' },
+    ],
+  },
+]
+
+export const getRenderTypeDef = (id) =>
+  RENDER_TYPES.find(t => t.id === id) || RENDER_TYPES[0]
+
+// Editor row counts per type (schedule is a single card → no cells)
+export const DEFAULT_ROWS_BY_TYPE = { points_table: 12, mvp: 12, slotlist: 12, schedule: 0 }
+
+// Build a blank cells array for a type's field schema
+const makeEmptyCellsFor = (fields, rows = 12) =>
+  Array.from({ length: rows }, () =>
+    Object.fromEntries(
+      fields.map(f => [f.key, EMPTY_CELL(f.key === 'team' || f.key === 'player' ? 'left' : 'center')])
+    )
+  )
+
+// Build a blank 12-row standings cells array (legacy shape)
+const makeEmptyCells = () => makeEmptyCellsFor(getRenderTypeDef('points_table').fields, 12)
 
 // ── Mapping editor column definitions ────────────────────────────────────────
 // Live here (not in ThemeMappingEditor.jsx) so the Ask AI modal can import
@@ -187,6 +237,47 @@ export const EXTRA_COLUMNS = [
   { key: 'tournament_name',     label: 'Tournament Name' },
   { key: 'lazarflow-watermark', label: 'LazarFlow Watermark' },
 ]
+
+// Per-type column sets for the mapping editor (row types only)
+export const COLUMNS_BY_TYPE = Object.fromEntries(
+  RENDER_TYPES.filter(t => t.hasRows).map(t => [t.id, t.fields.map(f => ({ key: f.key, label: f.label }))])
+)
+
+// Schedule cards render their fields via extra_fields (no cells)
+const SCHEDULE_EXTRA_COLUMNS = [
+  { key: 'title',               label: 'Title' },
+  { key: 'idp_time',            label: 'ID Pass Time' },
+  { key: 'start_time',          label: 'Start Time' },
+  { key: 'lazarflow-watermark', label: 'LazarFlow Watermark' },
+]
+
+export const EXTRA_COLUMNS_BY_TYPE = {
+  points_table: EXTRA_COLUMNS,
+  mvp: EXTRA_COLUMNS,
+  slotlist: EXTRA_COLUMNS,
+  schedule: SCHEDULE_EXTRA_COLUMNS,
+}
+
+// Per-type blank mapping config
+export const makeEmptyMappingConfig = (type = DEFAULT_RENDER_TYPE) => {
+  const def = getRenderTypeDef(type)
+  const base = {
+    scoreboard: {
+      color_rgb: [255, 255, 255],
+      font_path: 'Anton-Regular.ttf',
+      font_size: 130,
+    },
+    extra_fields: Object.fromEntries(
+      EXTRA_COLUMNS_BY_TYPE[def.id].map(c => [c.key, {
+        x: 0, y: 0,
+        alignment: c.key === 'lazarflow-watermark' ? 'left' : 'center',
+        font_size: c.key === 'lazarflow-watermark' ? 60 : 200,
+      }])
+    ),
+  }
+  if (def.hasRows) base.cells = makeEmptyCellsFor(def.fields, DEFAULT_ROWS_BY_TYPE[def.id])
+  return base
+}
 
 export const EMPTY_MAPPING_CONFIG = {
   // Schema: cells is an array of 12 row objects.
@@ -226,6 +317,50 @@ export const DUMMY_TEAMS = [
   { rank: '11', team: 'LAMBDA L',     w: '0', pp: '1',  kp: '2',  total: '3',  mp: '2' },
   { rank: '12', team: 'MU RAIDERS',   w: '0', pp: '0',  kp: '1',  total: '1',  mp: '1' },
 ]
+
+export const DUMMY_PLAYERS = [
+  { rank: '1',  player: 'SNAXGAMING',   team: 'ALPHA SQUAD',  kills: '23', mp: '6' },
+  { rank: '2',  player: 'DEADPOOLX',    team: 'BETA TEAM',    kills: '21', mp: '6' },
+  { rank: '3',  player: 'VORTEX',       team: 'GAMMA FORCE',  kills: '20', mp: '6' },
+  { rank: '4',  player: 'GHOSTPROWL',   team: 'DELTA OPS',    kills: '19', mp: '6' },
+  { rank: '5',  player: 'AVALANCHE',    team: 'EPSILON V',    kills: '18', mp: '6' },
+  { rank: '6',  player: 'NIGHTSTALKER', team: 'ZETA PRIME',   kills: '17', mp: '6' },
+  { rank: '7',  player: 'SKYRAPTOR',    team: 'ETA RIDERS',   kills: '16', mp: '6' },
+  { rank: '8',  player: 'FINSLAYER',    team: 'THETA X',      kills: '15', mp: '6' },
+  { rank: '9',  player: 'BLOODFANG',    team: 'IOTA GANG',    kills: '14', mp: '6' },
+  { rank: '10', player: 'STORMWING',    team: 'KAPPA CLAN',   kills: '13', mp: '6' },
+  { rank: '11', player: 'ICEBREAKER',   team: 'LAMBDA L',     kills: '12', mp: '6' },
+  { rank: '12', player: 'EMBERCLAW',    team: 'MU RAIDERS',   kills: '11', mp: '6' },
+]
+
+export const DUMMY_SLOTS = [
+  { slot: '1',  team: 'ALPHA SQUAD' },
+  { slot: '2',  team: 'BETA TEAM' },
+  { slot: '3',  team: 'GAMMA FORCE' },
+  { slot: '4',  team: 'DELTA OPS' },
+  { slot: '5',  team: 'EPSILON V' },
+  { slot: '6',  team: 'ZETA PRIME' },
+  { slot: '7',  team: 'ETA RIDERS' },
+  { slot: '8',  team: 'THETA X' },
+  { slot: '9',  team: 'IOTA GANG' },
+  { slot: '10', team: 'KAPPA CLAN' },
+  { slot: '11', team: 'LAMBDA L' },
+  { slot: '12', team: 'MU RAIDERS' },
+]
+
+export const DUMMY_SCHEDULE_INPUT = {
+  title: '12PM PRACTICE SCRIMS',
+  idp_time: '11:45 AM',
+  start_time: '12:00 PM',
+}
+
+// Per-type preview rows for the mapping editor's live overlay/preview
+export const DUMMY_ROWS_BY_TYPE = {
+  points_table: DUMMY_TEAMS,
+  mvp: DUMMY_PLAYERS,
+  slotlist: DUMMY_SLOTS,
+  schedule: [],
+}
 
 // ── Font metrics cache ──────────────────────────────────────────────────────
 // Fetched from /api/render/font-metrics and cached in memory for the session.
