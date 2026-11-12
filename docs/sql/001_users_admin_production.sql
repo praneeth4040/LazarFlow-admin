@@ -34,46 +34,34 @@ as $$
 $$;
 
 -- ── 1. admin_grants ────────────────────────────────────────────────────
+-- ⚠️ This matches the LIVE table (source of truth, confirmed 2026-11-05).
+-- Do NOT rename columns here — the admin UI (UsersView.logAdminGrant)
+-- writes exactly these names. Policies are owned by 002 (idempotent).
 create table if not exists public.admin_grants (
   id             uuid primary key default gen_random_uuid(),
-  grant_type     text not null check (grant_type in (
-                   'credit_add', 'credit_deduct', 'credit_set',
-                   'subscription_grant', 'subscription_extend', 'subscription_revoke',
-                   'ban', 'unban', 'session_revoke', 'device_reset', 'notification')),
-  target_user_id uuid not null references public.profiles(id) on delete cascade,
-  actor_admin_id uuid references public.profiles(id) on delete set null,
-  amount         int,              -- signed credit delta (credit_*)
-  balance_after  int,              -- resulting flux_balance (credit_*)
-  plan           text,             -- subscription tier (subscription_*)
-  days           int,              -- duration (subscription_*)
-  expires_at     timestamptz,      -- resulting expiry (subscription_*)
-  reason         text,
-  note           text,
-  before_state   jsonb,            -- snapshot of profiles fields before
-  after_state    jsonb,            -- snapshot of profiles fields after
-  metadata       jsonb,            -- campaign ids, batch ids, extras
-  created_at     timestamptz not null default now()
+  user_id        uuid not null,
+  granted_by     uuid null,
+  type           text not null,     -- credit_add|credit_deduct|credit_set|
+                                    -- subscription_grant|subscription_extend|subscription_revoke|
+                                    -- ban|unban|session_revoke|device_reset|notification
+  amount         integer null,      -- signed credit delta (credit_*)
+  plan_id        text null,         -- subscription tier (subscription_*)
+  balance_after  integer null,      -- resulting flux_balance (credit_*)
+  note           text null,
+  metadata       jsonb not null default '{}'::jsonb,
+  created_at     timestamptz not null default now(),
+  constraint admin_grants_user_id_fkey foreign key (user_id)
+    references auth.users (id) on delete cascade,
+  constraint admin_grants_granted_by_fkey foreign key (granted_by)
+    references auth.users (id) on delete set null
 );
 
-create index if not exists admin_grants_target_idx
-  on public.admin_grants (target_user_id, created_at desc);
-create index if not exists admin_grants_actor_idx
-  on public.admin_grants (actor_admin_id, created_at desc);
-create index if not exists admin_grants_type_idx
-  on public.admin_grants (grant_type, created_at desc);
+create index if not exists idx_admin_grants_user_id
+  on public.admin_grants using btree (user_id, created_at desc);
 
-alter table public.admin_grants enable row level security;
-
-create policy admin_grants_admin_read
-  on public.admin_grants for select to authenticated
-  using (public.is_admin());
-
-create policy admin_grants_admin_insert
-  on public.admin_grants for insert to authenticated
-  with check (public.is_admin());
-
--- Append-only on purpose: no update / delete policies. The service role
--- (used by SECURITY DEFINER RPCs) bypasses RLS anyway.
+-- Append-only on purpose: read/insert policies for admins live in
+-- docs/sql/002_admin_grant_policies.sql (idempotent drop+create). No
+-- update/delete policies exist — rows are never mutated.
 
 -- ── 2. notifications ───────────────────────────────────────────────────
 create table if not exists public.notifications (
@@ -205,16 +193,19 @@ begin
   where id = p_target;
 
   insert into public.admin_grants (
-    grant_type, target_user_id, actor_admin_id,
-    amount, balance_after, reason, note, before_state, after_state
+    type, user_id, granted_by,
+    amount, balance_after, note, metadata
   ) values (
     case p_mode when 'add' then 'credit_add'
                 when 'deduct' then 'credit_deduct'
                 else 'credit_set' end,
     p_target, v_admin,
-    v_delta, v_next, p_reason, p_note,
-    jsonb_build_object('flux_balance', v_current),
-    jsonb_build_object('flux_balance', v_next)
+    v_delta, v_next, p_note,
+    jsonb_build_object(
+      'reason', p_reason,
+      'before', jsonb_build_object('flux_balance', v_current),
+      'after',  jsonb_build_object('flux_balance', v_next)
+    )
   );
 
   return jsonb_build_object('balance_after', v_next, 'delta', v_delta);
@@ -291,17 +282,22 @@ begin
   where id = p_target;
 
   insert into public.admin_grants (
-    grant_type, target_user_id, actor_admin_id,
-    plan, days, expires_at, reason, note, before_state, after_state
+    type, user_id, granted_by,
+    plan_id, note, metadata
   ) values (
     'subscription_' || p_mode,
     p_target, v_admin,
-    v_tier, p_days, v_expires, p_note, p_note,
-    v_before,
+    v_tier, p_note,
     jsonb_build_object(
-      'subscription_tier', v_tier,
-      'subscription_status', v_status,
-      'subscription_expires_at', v_expires
+      'mode', p_mode,
+      'days', p_days,
+      'expires_at', v_expires,
+      'before', v_before,
+      'after', jsonb_build_object(
+        'subscription_tier', v_tier,
+        'subscription_status', v_status,
+        'subscription_expires_at', v_expires
+      )
     )
   );
 
@@ -381,14 +377,18 @@ begin
     where id = p_target;
 
     insert into public.admin_grants (
-      grant_type, target_user_id, actor_admin_id,
-      reason, note, before_state, after_state, metadata
+      type, user_id, granted_by,
+      note, metadata
     ) values (
       'ban', p_target, v_admin,
-      p_reason, p_note,
-      jsonb_build_object('feature_flags', v_flags),
-      jsonb_build_object('banned', true),
-      jsonb_build_object('ban_id', v_ban_id, 'until', p_until)
+      p_note,
+      jsonb_build_object(
+        'reason', p_reason,
+        'until', p_until,
+        'ban_id', v_ban_id,
+        'before', jsonb_build_object('feature_flags', v_flags),
+        'after', jsonb_build_object('banned', true)
+      )
     );
 
     return jsonb_build_object('banned', true, 'ban_id', v_ban_id);
@@ -406,13 +406,16 @@ begin
     where id = p_target;
 
     insert into public.admin_grants (
-      grant_type, target_user_id, actor_admin_id,
-      reason, note, before_state, after_state
+      type, user_id, granted_by,
+      note, metadata
     ) values (
       'unban', p_target, v_admin,
-      p_reason, p_note,
-      jsonb_build_object('banned', true),
-      jsonb_build_object('banned', false)
+      p_note,
+      jsonb_build_object(
+        'reason', p_reason,
+        'before', jsonb_build_object('banned', true),
+        'after', jsonb_build_object('banned', false)
+      )
     );
 
     return jsonb_build_object('banned', false);
@@ -476,11 +479,11 @@ begin
   get diagnostics v_count = row_count;
 
   insert into public.admin_grants (
-    grant_type, target_user_id, actor_admin_id,
-    reason, note, metadata
+    type, user_id, granted_by,
+    note, metadata
   ) values (
     'notification', v_admin, v_admin,   -- self-row marks the campaign actor
-    p_note, p_note,
+    p_note,
     jsonb_build_object(
       'campaign_id', v_campaign,
       'recipients', v_count,

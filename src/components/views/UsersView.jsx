@@ -331,6 +331,22 @@ const UsersView = ({ admin, initialQuery = '', externalRefreshKey = 0 }) => {
     }
   }
 
+  // ── Atomic server-side actions (docs/sql/001 RPCs) ──────────────────────
+  // Preferred path: adjust_flux_balance / set_subscription make the mutation
+  // and its admin_grants audit row ONE transaction (no client-side
+  // read-modify-write race, correct balance_after). If the RPCs are not
+  // installed yet (PostgREST PGRST202) we fall back to the legacy
+  // direct-write path so the UI keeps working until 001 is run in Supabase.
+  const rpcAvailableRef = useRef({ credits: true, subscription: true })
+  const isMissingRpc = (error) =>
+    error?.code === 'PGRST202'
+    || /could not find the function/i.test(error?.message || '')
+    || /schema cache/i.test(error?.message || '')
+
+  // The RPC writes the audit row server-side; mirror a stand-in into local
+  // state so the UI shows it immediately (a refetch brings the real row).
+  const mirrorGrantRow = (row) => setGrants((current) => [row, ...current].slice(0, 600))
+
   const sendNotifications = async (payload, { silent = false } = {}) => {
     const { targets, channel, title, body } = payload
 
@@ -422,6 +438,7 @@ const UsersView = ({ admin, initialQuery = '', externalRefreshKey = 0 }) => {
     if (!modal?.targets?.length) return
     setBusy(true)
     try {
+      const creditType = mode === 'add' ? 'credit_add' : mode === 'deduct' ? 'credit_deduct' : 'credit_set'
       const results = await runBatched(modal.targets, async (target) => {
         try {
           const base = Number(target.flux_balance) || 0
@@ -431,27 +448,68 @@ const UsersView = ({ admin, initialQuery = '', externalRefreshKey = 0 }) => {
           const delta = next - base
           if (delta === 0) return { ok: true, unchanged: true }
 
-          await applyPatch(target.id, { flux_balance: next })
+          // Preferred: atomic RPC — mutation + audit row in one transaction.
+          let balanceAfter = next
+          let viaRpc = false
+          if (rpcAvailableRef.current.credits) {
+            const { data, error } = await supabase.rpc('adjust_flux_balance', {
+              p_target: target.id,
+              p_mode: mode,
+              p_amount: amount,
+              p_reason: reason || null,
+              p_note: note || null,
+            })
+            if (error) {
+              if (isMissingRpc(error)) rpcAvailableRef.current.credits = false
+              else throw error
+            } else {
+              viaRpc = true
+              balanceAfter = Number(data?.balance_after ?? next)
+            }
+          }
+
+          if (!viaRpc) {
+            // Legacy direct write (pre-001 databases)
+            await applyPatch(target.id, { flux_balance: next })
+          } else {
+            setProfiles((current) => current.map((p) => (
+              p.id === target.id ? { ...p, flux_balance: balanceAfter } : p
+            )))
+          }
 
           setCreditEvents((current) => [{
             id: `${target.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             user_id: target.id,
-            delta,
-            balance_after: next,
+            delta: balanceAfter - base,
+            balance_after: balanceAfter,
             reason,
             note,
             created_at: new Date().toISOString(),
             by: adminLabel,
           }, ...current].slice(0, 300))
 
-          await logAdminGrant({
-            userId: target.id,
-            type: mode === 'add' ? 'credit_add' : mode === 'deduct' ? 'credit_deduct' : 'credit_set',
-            amount: delta,
-            balanceAfter: next,
-            note: reason,
-            metadata: { note: note || null, reason },
-          })
+          if (viaRpc) {
+            mirrorGrantRow({
+              id: `local-${target.id}-${Date.now()}`,
+              user_id: target.id,
+              granted_by: admin?.id || null,
+              type: creditType,
+              amount: balanceAfter - base,
+              balance_after: balanceAfter,
+              note: reason,
+              metadata: { note: note || null, reason },
+              created_at: new Date().toISOString(),
+            })
+          } else {
+            await logAdminGrant({
+              userId: target.id,
+              type: creditType,
+              amount: delta,
+              balanceAfter,
+              note: reason,
+              metadata: { note: note || null, reason },
+            })
+          }
           return { ok: true }
         } catch {
           return { ok: false }
@@ -503,30 +561,84 @@ const UsersView = ({ admin, initialQuery = '', externalRefreshKey = 0 }) => {
               subscription_expires_at: addDays(new Date(), days).toISOString(),
             }
           }
-          const updated = await applyPatch(target.id, patch)
           const beforeMeta = {
             subscription_tier: target.subscription_tier ?? null,
             subscription_status: target.subscription_status ?? null,
             subscription_expires_at: target.subscription_expires_at ?? null,
           }
-          const afterMeta = {
-            subscription_tier: updated?.subscription_tier ?? patch.subscription_tier ?? null,
-            subscription_status: updated?.subscription_status ?? patch.subscription_status ?? null,
-            subscription_expires_at: updated?.subscription_expires_at ?? patch.subscription_expires_at ?? null,
+
+          // Preferred: atomic RPC — mutation + audit row in one transaction.
+          let afterMeta = null
+          let viaRpc = false
+          if (rpcAvailableRef.current.subscription) {
+            const { data, error } = await supabase.rpc('set_subscription', {
+              p_target: target.id,
+              p_mode: mode,
+              p_plan: plan || null,
+              p_status: status || 'active',
+              p_days: days ?? null,
+              p_note: note || null,
+            })
+            if (error) {
+              if (isMissingRpc(error)) rpcAvailableRef.current.subscription = false
+              else throw error
+            } else {
+              viaRpc = true
+              afterMeta = {
+                subscription_tier: data?.subscription_tier ?? null,
+                subscription_status: data?.subscription_status ?? null,
+                subscription_expires_at: data?.subscription_expires_at ?? null,
+              }
+            }
           }
-          await logAdminGrant({
-            userId: target.id,
-            type: `subscription_${mode}`,
-            planId: afterMeta.subscription_tier,
-            note: note || null,
-            metadata: {
-              mode,
-              requested_plan: plan || null,
-              days: days ?? null,
-              before: beforeMeta,
-              after: afterMeta,
-            },
-          })
+
+          if (!viaRpc) {
+            // Legacy direct write (pre-001 databases)
+            const updated = await applyPatch(target.id, patch)
+            afterMeta = {
+              subscription_tier: updated?.subscription_tier ?? patch.subscription_tier ?? null,
+              subscription_status: updated?.subscription_status ?? patch.subscription_status ?? null,
+              subscription_expires_at: updated?.subscription_expires_at ?? patch.subscription_expires_at ?? null,
+            }
+          } else {
+            setProfiles((current) => current.map((p) => (
+              p.id === target.id ? { ...p, ...afterMeta } : p
+            )))
+          }
+
+          if (viaRpc) {
+            mirrorGrantRow({
+              id: `local-${target.id}-${Date.now()}`,
+              user_id: target.id,
+              granted_by: admin?.id || null,
+              type: `subscription_${mode}`,
+              plan_id: afterMeta.subscription_tier,
+              balance_after: null,
+              note: note || null,
+              metadata: {
+                mode,
+                requested_plan: plan || null,
+                days: days ?? null,
+                before: beforeMeta,
+                after: afterMeta,
+              },
+              created_at: new Date().toISOString(),
+            })
+          } else {
+            await logAdminGrant({
+              userId: target.id,
+              type: `subscription_${mode}`,
+              planId: afterMeta.subscription_tier,
+              note: note || null,
+              metadata: {
+                mode,
+                requested_plan: plan || null,
+                days: days ?? null,
+                before: beforeMeta,
+                after: afterMeta,
+              },
+            })
+          }
           return { ok: true }
         } catch {
           return { ok: false }
