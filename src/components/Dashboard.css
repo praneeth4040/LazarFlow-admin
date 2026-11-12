@@ -4862,6 +4862,14 @@
 .ctm-status-pill:hover { background: rgba(255,255,255,0.09); }
 .ctm-pill-pending.active  { background: rgba(251,188,4,0.15); border-color: rgba(251,188,4,0.4); color: #fbbc04; }
 .ctm-pill-verified.active { background: rgba(52,168,83,0.15); border-color: rgba(52,168,83,0.4); color: #34a853; }
+/* Render-type pills (Standings/MVP/Slots/Schedule) — solid violet so the
+   selection is unmistakable (previously had NO .active style at all) */
+.ctm-pill-type.active {
+  background: #8b5cf6;
+  border-color: #8b5cf6;
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.35);
+}
 
 .ctm-info-banner {
   display: flex; align-items: flex-start; gap: 8px;
@@ -7685,3 +7693,131 @@
   color: #8b5cf6;
   border-color: rgba(139, 92, 246, 0.5);
 }
+
+/* ─── .des import modal ─────────────────────────────────────────────────── */
+.des-import-btn { margin-right: 8px; }
+.dim-modal { max-width: 560px; width: 92%; }
+.dim-modal.wide { max-width: 860px; }
+.dim-ok-icon { color: #34c77b; }
+
+/* step 1 — drop zone */
+.dim-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; padding: 34px 20px; cursor: pointer; text-align: center;
+  border: 1.5px dashed rgba(255,255,255,0.18); border-radius: 12px;
+  color: #9aa0a6; transition: border-color .15s, background .15s;
+}
+.dim-drop:hover, .dim-drop.dragging {
+  border-color: #4a9eff; background: rgba(74,158,255,0.06); color: #e8eaed;
+}
+.dim-drop.has-file { border-style: solid; border-color: rgba(52,199,123,0.45); background: rgba(52,199,123,0.05); }
+.dim-drop strong { font-size: 14px; color: #e8eaed; }
+.dim-drop-sub { font-size: 12px; color: #6b7075; }
+.dim-drop-icon {
+  width: 52px; height: 52px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center;
+  background: rgba(74,158,255,0.1); color: #4a9eff; margin-bottom: 4px;
+}
+.dim-drop.has-file .dim-drop-icon { background: rgba(52,199,123,0.12); color: #34c77b; }
+
+.dim-primary-btn {
+  display: inline-flex; align-items: center; gap: 8px; justify-content: center;
+  background: #4a9eff; color: #fff; border: none; border-radius: 8px;
+  padding: 11px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.dim-primary-btn:disabled { opacity: 0.5; cursor: default; }
+.dim-primary-btn:not(:disabled):hover { background: #3b8ee8; }
+.dim-primary-btn.dim-block { width: 100%; }
+.dim-secondary-btn {
+  display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+  background: transparent; color: #9aa0a6; border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px; padding: 10px 14px; font-size: 13px; cursor: pointer; flex: 1;
+}
+.dim-secondary-btn:disabled { opacity: 0.5; }
+.dim-secondary-btn:not(:disabled):hover { color: #e8eaed; border-color: rgba(255,255,255,0.3); }
+.dim-status { display: flex; align-items: center; gap: 8px; color: #9aa0a6; font-size: 13px; }
+.dim-hint {
+  display: flex; align-items: center; gap: 8px; color: #6b7075; font-size: 12px;
+  padding: 10px 12px; background: rgba(255,255,255,0.02); border-radius: 8px;
+}
+.dim-hint svg { flex-shrink: 0; }
+
+/* step 2 — side-by-side review */
+.dim-review {
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 14px; padding: 16px 20px 8px;
+}
+.dim-preview-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dim-preview-label {
+  display: flex; align-items: center; gap: 6px; font-size: 11.5px;
+  color: #9aa0a6; text-transform: uppercase; letter-spacing: 0.4px;
+}
+.dim-preview-wrap {
+  background: #0d1117; border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; max-height: 460px; min-height: 300px;
+}
+.dim-preview-wrap.tall { max-height: 520px; }
+.dim-preview { max-width: 100%; max-height: 460px; object-fit: contain; display: block; }
+.dim-preview-wrap.tall .dim-preview { max-height: 520px; }
+
+.dim-side-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dim-audit {
+  display: flex; align-items: center; gap: 10px; padding: 11px 13px;
+  border-radius: 10px; font-size: 12.5px;
+}
+.dim-audit strong { display: block; font-size: 13px; }
+.dim-audit span { font-size: 11.5px; color: #9aa0a6; }
+.dim-audit.ok { background: rgba(52,199,123,0.08); color: #7ee2a8; border: 1px solid rgba(52,199,123,0.25); }
+.dim-audit.warn { background: rgba(249,171,61,0.08); color: #f5b45e; border: 1px solid rgba(249,171,61,0.3); }
+.dim-audit svg { flex-shrink: 0; }
+
+.dim-chips { display: flex; flex-direction: column; gap: 6px; }
+.dim-chip {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+  background: rgba(255,255,255,0.03); border-radius: 8px; font-size: 12.5px; color: #9aa0a6;
+}
+.dim-chip svg { color: #4a9eff; flex-shrink: 0; }
+.dim-chip b { margin-left: auto; color: #e8eaed; font-weight: 600; }
+
+.dim-rename { display: flex; flex-direction: column; gap: 5px; }
+.dim-rename .ctm-label { display: flex; align-items: center; gap: 5px; }
+.dim-side-actions { display: flex; gap: 8px; margin-top: auto; }
+.dim-side-actions .dim-primary-btn { flex: 1.4; }
+
+.dim-json-details {
+  margin: 10px 20px 16px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;
+}
+.dim-json-details summary {
+  cursor: pointer; color: #6b7075; font-size: 12px; user-select: none;
+  display: flex; align-items: center; gap: 6px; list-style: none;
+}
+.dim-json-details summary::-webkit-details-marker { display: none; }
+.dim-json-details summary:hover { color: #9aa0a6; }
+.dim-json {
+  max-height: 220px; overflow: auto; background: #0d1117; border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px; padding: 12px; font-size: 11px; line-height: 1.5; color: #c9d1d9; margin: 10px 0 0;
+}
+
+/* step 3 — done */
+.dim-done-card {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  background: rgba(52,199,123,0.1); border: 1px solid rgba(52,199,123,0.3);
+  border-radius: 12px; color: #7ee2a8; margin-bottom: 12px;
+}
+.dim-done-card svg { flex-shrink: 0; }
+.dim-done-card strong { display: block; font-size: 14px; color: #e8eaed; }
+.dim-done-card span { font-size: 12px; color: #9aa0a6; }
+
+/* create-modal upload button + meta */
+.ctm-upload-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(74,158,255,0.12); color: #4a9eff; border: 1px solid rgba(74,158,255,0.35);
+  border-radius: 8px; padding: 8px 14px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  white-space: nowrap;
+}
+.ctm-upload-btn:disabled { opacity: 0.5; cursor: default; }
+.ctm-upload-btn:not(:disabled):hover { background: rgba(74,158,255,0.2); }
+.ctm-img-meta { font-size: 11.5px; color: #6b7075; }
+.spin { animation: ctm-spin 1s linear infinite; }
+@keyframes ctm-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

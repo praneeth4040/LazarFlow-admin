@@ -7,9 +7,10 @@ import {
   ExternalLink, Play, Trophy, SlidersHorizontal,
   Download, RefreshCcw, ChevronDown, Pencil, Trash2,
   Copy, CopyCheck, ShieldCheck, Save, Ban, GitMerge,
-  Globe, Lock, Users, ArrowUpRight, Crosshair, Plus, Upload,
+  Globe, Lock, Users, ArrowUpRight, Crosshair, Plus, Upload, FileUp,
 } from 'lucide-react'
 import ThemeMappingEditor from './ThemeMappingEditor'
+import DesImportModal from './DesImportModal'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -19,6 +20,8 @@ const THEME_STATUS = { VERIFIED: 'verified', IN_PROGRESS: 'in_progress', PENDING
 const DB_STATUSES  = ['pending', 'verified', 'rejected']
 
 // Theme ownership type — derived from user_id
+import { RENDER_TYPES, getRenderTypeDef, DEFAULT_RENDER_TYPE } from '../../constants/themeConstants'
+
 const THEME_TYPE = { COMMUNITY: 'community', CUSTOM: 'custom' }
 const getThemeType = (theme) => (!theme.user_id ? THEME_TYPE.COMMUNITY : THEME_TYPE.CUSTOM)
 
@@ -468,6 +471,7 @@ const ThemeDetailDrawer = ({ theme: initialTheme, onClose, onUpdated, onDeleted 
         body: JSON.stringify({
           themeId:     theme.id,
           lobbyId:     selectedLobby.id,
+          renderType:  theme?.type || DEFAULT_RENDER_TYPE,
           extraData,
           adjustments,
         }),
@@ -514,6 +518,9 @@ const ThemeDetailDrawer = ({ theme: initialTheme, onClose, onUpdated, onDeleted 
                   </span>
                   <span className="hero-badge-pill type-pill" style={{ background: typeMeta.bg, color: typeMeta.accent, borderColor: `${typeMeta.accent}40` }}>
                     <TypeIcon size={12} /> {typeMeta.label}
+                  </span>
+                  <span className="hero-badge-pill id-pill" title="Render type">
+                    {getRenderTypeDef(theme?.type).label}
                   </span>
                   <span className="hero-badge-pill id-pill">
                     <Hash size={11} /> {theme.id.slice(0, 8)}
@@ -1006,11 +1013,48 @@ const CreateCommunityThemeModal = ({ onClose, onCreated }) => {
   const [name,    setName]    = useState('')
   const [url,     setUrl]     = useState('')
   const [status,  setStatus]  = useState('pending')
+  const [renderType, setRenderType] = useState(DEFAULT_RENDER_TYPE)
+  const [uploading,  setUploading]  = useState(false)
+  const [imgMeta,    setImgMeta]    = useState(null)
+  const fileInputRef = useRef(null)
+
+  const handleImagePick = async (e) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setUploading(true); setError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` } : {}
+      const fd = new FormData()
+      fd.append('image', f)
+      fd.append('type', renderType)
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/themes/upload-image`, {
+        method: 'POST', headers, body: fd,
+      })
+      if (!res.ok) {
+        let msg = `Error ${res.status}`
+        try {
+          const j = await res.json()
+          msg = j.detail?.message || j.message || msg
+        } catch { /* response body was not JSON */ }
+        throw new Error(msg)
+      }
+      const j = await res.json()
+      setUrl(j.url); setImgMeta(j); setPreview(true)
+    } catch (e2) {
+      setError(e2.message)
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState('')
   const [preview, setPreview] = useState(false)
 
-  const canSave = name.trim().length > 0
+  // themes.url is NOT NULL in the database — a background image is required
+  const canSave = name.trim().length > 0 && url.trim().length > 0
 
   const handleCreate = async () => {
     if (!canSave) return
@@ -1022,6 +1066,7 @@ const CreateCommunityThemeModal = ({ onClose, onCreated }) => {
           name:       name.trim(),
           url:        url.trim() || null,
           status,
+          type:       renderType,   // points_table | mvp | slotlist | schedule
           user_id:    null,   // null user_id = community theme
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -1068,12 +1113,38 @@ const CreateCommunityThemeModal = ({ onClose, onCreated }) => {
             />
           </div>
 
-          {/* Image URL */}
+          {/* Background image — upload (stores at themes/{type}/{uid}.{ext}) or paste URL.
+              Required: themes.url is NOT NULL in the database. */}
           <div className="ctm-field">
             <label className="ctm-label">
-              <LinkIcon size={12} /> Background Image URL
-              <span className="ctm-optional">optional — can be added later</span>
+              <ImageIcon size={12} /> Background Image
+              <span className="ctm-required">*</span>
+              <span className="ctm-optional">upload a file or paste a URL</span>
             </label>
+            <div className="ctm-url-row">
+              <button
+                type="button"
+                className="ctm-upload-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                {uploading
+                  ? <><Loader2 size={14} className="spin" /> Uploading…</>
+                  : <><Upload size={14} /> Upload image</>}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.webp"
+                style={{ display: 'none' }}
+                onChange={handleImagePick}
+              />
+              {imgMeta && (
+                <span className="ctm-img-meta">
+                  {imgMeta.width}×{imgMeta.height} · stored as {imgMeta.path}
+                </span>
+              )}
+            </div>
             <div className="ctm-url-row">
               <input
                 className="ctm-input"
@@ -1113,6 +1184,24 @@ const CreateCommunityThemeModal = ({ onClose, onCreated }) => {
                 >
                   {s === 'verified' ? <CheckCircle2 size={13} /> : <Clock size={13} />}
                   {s.charAt(0).toUpperCase() + s.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Render type */}
+          <div className="ctm-field">
+            <label className="ctm-label">Render Type</label>
+            <div className="ctm-status-pills">
+              {RENDER_TYPES.map(rt => (
+                <button
+                  key={rt.id}
+                  type="button"
+                  className={`ctm-status-pill ctm-pill-type ${renderType === rt.id ? 'active' : ''}`}
+                  onClick={() => setRenderType(rt.id)}
+                  title={rt.hasRows ? `${rt.label} — ${rt.rowLabel.toLowerCase()} rows` : `${rt.label} card`}
+                >
+                  {rt.label}
                 </button>
               ))}
             </div>
@@ -1198,10 +1287,12 @@ const ThemeBuilderView = ({ addLog }) => {
   const [imageErrors, setImageErrors] = useState({})
   const [activeFilter, setActiveFilter] = useState('all')   // verification status filter
   const [typeFilter, setTypeFilter]     = useState('all')   // 'all' | 'community' | 'custom'
+  const [renderTypeFilter, setRenderTypeFilter] = useState('all')   // 'all' | RenderTypeId
   const [selectedTheme, setSelectedTheme] = useState(null)
   const [showDuplicates, setShowDuplicates] = useState(false)
   const [hideDuplicates, setHideDuplicates] = useState(true) // DEFAULT: hide duplicates so user doesn't see duplicates
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showDesImport,   setShowDesImport]   = useState(false)
   // Cache owner names for card chips (custom themes)
   const [ownerCache, setOwnerCache] = useState({}) // userId -> { display_name, username, emails }
 
@@ -1250,7 +1341,15 @@ const ThemeBuilderView = ({ addLog }) => {
     : typeFilter === THEME_TYPE.COMMUNITY ? effectiveThemes.filter(t => !t.user_id)
     : effectiveThemes.filter(t => !!t.user_id)
 
-  const groups = typeFiltered.reduce(
+  // Render-type filter (standings / MVP / slots / schedule); legacy rows have
+  // no `type` column value and are points_table
+  const renderFiltered = renderTypeFilter === 'all' ? typeFiltered
+    : typeFiltered.filter(t => (t.type || DEFAULT_RENDER_TYPE) === renderTypeFilter)
+  const rtCounts = Object.fromEntries(
+    RENDER_TYPES.map(rt => [rt.id, typeFiltered.filter(t => (t.type || DEFAULT_RENDER_TYPE) === rt.id).length])
+  )
+
+  const groups = renderFiltered.reduce(
     (acc, t) => { const s = classifyTheme(t); if (acc[s]) acc[s].push(t); return acc },
     { verified: [], in_progress: [], pending: [], rejected: [] }
   )
@@ -1311,6 +1410,14 @@ const ThemeBuilderView = ({ addLog }) => {
             !loading && <span className="no-dup-badge"><CopyCheck size={13} /> No duplicates</span>
           )}
           <button
+            className="add-community-theme-btn des-import-btn"
+            onClick={() => setShowDesImport(true)}
+            title="Import a PointCalc .des design — image + mapping config extracted automatically"
+          >
+            <FileUp size={15} />
+            Import .des
+          </button>
+          <button
             className="add-community-theme-btn"
             onClick={() => setShowCreateModal(true)}
           >
@@ -1348,7 +1455,7 @@ const ThemeBuilderView = ({ addLog }) => {
       {/* ── Status filter chips ── */}
       <div className="gallery-filters">
         <button className={`filter-chip ${activeFilter === 'all' ? 'active' : ''}`} onClick={() => setActiveFilter('all')}>
-          All <span className="filter-count">{typeFiltered.length}</span>
+          All <span className="filter-count">{renderFiltered.length}</span>
         </button>
         {statusOrder.map((s) => {
           const { Icon, label, accent } = STATUS_META[s]
@@ -1362,6 +1469,21 @@ const ThemeBuilderView = ({ addLog }) => {
             </button>
           )
         })}
+      </div>
+
+      {/* ── Render-type filter chips ── */}
+      <div className="gallery-filters">
+        <button className={`filter-chip ${renderTypeFilter === 'all' ? 'active' : ''}`} onClick={() => setRenderTypeFilter('all')}>
+          Every type <span className="filter-count">{typeFiltered.length}</span>
+        </button>
+        {RENDER_TYPES.map((rt) => (
+          <button key={rt.id}
+            className={`filter-chip ${renderTypeFilter === rt.id ? 'active' : ''}`}
+            onClick={() => setRenderTypeFilter(rt.id)}>
+            {rt.label}
+            <span className="filter-count">{rtCounts[rt.id]}</span>
+          </button>
+        ))}
       </div>
 
       {/* ── Card list ── */}
@@ -1430,6 +1552,10 @@ const ThemeBuilderView = ({ addLog }) => {
                           <h4 className="theme-card-name">{theme.name || `Theme #${theme.id.slice(-4)}`}</h4>
                           <div className="theme-card-meta">
                             <span>Updated {formatDate(theme.updated_at || theme.created_at)}</span>
+                            <span className="card-owner-chip" title="Render type"
+                              style={{ background: 'rgba(99,102,241,.15)', color: '#a5b4fc' }}>
+                              {getRenderTypeDef(theme?.type).label}
+                            </span>
                             {/* Owner chip or community label */}
                             {tType === THEME_TYPE.COMMUNITY ? (
                               <span className="card-owner-chip community"><Globe size={10} /> Community</span>
@@ -1478,6 +1604,12 @@ const ThemeBuilderView = ({ addLog }) => {
       )}
 
       {/* Create community theme modal */}
+      {showDesImport && (
+        <DesImportModal
+          onClose={() => setShowDesImport(false)}
+          onImported={() => { setShowDesImport(false); fetchThemes() }}
+        />
+      )}
       {showCreateModal && (
         <CreateCommunityThemeModal
           onClose={() => setShowCreateModal(false)}

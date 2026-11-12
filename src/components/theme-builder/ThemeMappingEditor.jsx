@@ -7,8 +7,11 @@ import {
   Magnet, ChevronsRight, ArrowUpDown, Sparkles,
 } from 'lucide-react'
 import {
-  EMPTY_MAPPING_CONFIG, FONT_OPTIONS, FONT_FAMILY_MAP, DUMMY_TEAMS,
+  FONT_OPTIONS, FONT_FAMILY_MAP,
   fetchFontMetrics, getYCorrection, COLUMNS, EXTRA_COLUMNS,
+  DEFAULT_RENDER_TYPE, getRenderTypeDef, DEFAULT_ROWS_BY_TYPE,
+  COLUMNS_BY_TYPE, EXTRA_COLUMNS_BY_TYPE, DUMMY_ROWS_BY_TYPE,
+  makeEmptyMappingConfig,
 } from '../../constants/themeConstants'
 import AskAiModal from './AskAiModal'
 
@@ -28,6 +31,7 @@ const deepClone = (obj) => JSON.parse(JSON.stringify(obj))
 const DEFAULT_ALIGN = {
   rank: 'center', team: 'left', w: 'center',
   pp: 'center', kp: 'center', total: 'center', mp: 'center',
+  player: 'left', kills: 'center', slot: 'center',
 }
 
 const isPlaced  = (c) => c && !c.skipped && (c.x !== 0 || c.y !== 0)
@@ -74,17 +78,17 @@ const getColumnXValues = (cells, colKey) => {
 }
 
 // Collect all placed Y values for a given row
-const getRowYValues = (cells, rowIdx) => {
+const getRowYValues = (cells, rowIdx, columns = COLUMNS) => {
   if (!Array.isArray(cells)) return []
   const row = cells[rowIdx] || {}
-  return COLUMNS
+  return columns
     .map(col => row[col.key])
     .filter(c => isPlaced(c))
     .map(c => c.y)
 }
 
 // Snap a raw x/y to nearby column-X or row-Y values
-const applySnap = (nx, ny, cells, colKey, rowIdx, snapOn) => {
+const applySnap = (nx, ny, cells, colKey, rowIdx, snapOn, columns = COLUMNS) => {
   if (!snapOn) return { nx, ny, snapX: null, snapY: null }
 
   let finalX = nx, finalY = ny, snapX = null, snapY = null
@@ -94,7 +98,7 @@ const applySnap = (nx, ny, cells, colKey, rowIdx, snapOn) => {
     if (Math.abs(nx - cx) <= SNAP_THRESHOLD) { finalX = cx; snapX = cx; break }
   }
 
-  const rowYs = getRowYValues(cells, rowIdx)
+  const rowYs = getRowYValues(cells, rowIdx, columns)
   for (const ry of rowYs) {
     if (Math.abs(ny - ry) <= SNAP_THRESHOLD) { finalY = ry; snapY = ry; break }
   }
@@ -106,31 +110,45 @@ const applySnap = (nx, ny, cells, colKey, rowIdx, snapOn) => {
 // buildInitialConfig
 // ─────────────────────────────────────────────────────────────────────────────
 
-const buildInitialConfig = (existing) => {
-  if (!existing) return deepClone(EMPTY_MAPPING_CONFIG)
+const buildInitialConfig = (existing, renderType = DEFAULT_RENDER_TYPE) => {
+  const def  = getRenderTypeDef(renderType)
+  const base = makeEmptyMappingConfig(renderType)
 
-  const base = deepClone(EMPTY_MAPPING_CONFIG)
+  if (!existing) return base
+
   base.scoreboard   = existing.scoreboard   || base.scoreboard
   base.extra_fields = existing.extra_fields || base.extra_fields
 
-  if (Array.isArray(existing.cells)) {
-    const rows = Array.from({ length: 12 }, (_, i) => {
-      const er   = existing.cells[i] || {}
-      const br   = base.cells[i]
+  const columns  = COLUMNS_BY_TYPE[def.id] || []
+  const rowCount = def.hasRows
+    ? Math.max(
+        DEFAULT_ROWS_BY_TYPE[def.id] || 12,
+        Array.isArray(existing.cells) ? existing.cells.length : 0,
+      )
+    : 0
+
+  if (def.hasRows && Array.isArray(existing.cells)) {
+    const rows = Array.from({ length: rowCount }, (_, i) => {
+      const er = existing.cells[i] || {}
+      const br = base.cells[i] || {}
       return {
         ...br,
         ...Object.fromEntries(
           Object.keys(br).map(key => [key, er[key] ? { ...br[key], ...er[key] } : br[key]])
+        ),
+        // preserve stored keys the base doesn't know about (e.g. legacy columns)
+        ...Object.fromEntries(
+          Object.keys(er).filter(key => !(key in br)).map(key => [key, er[key]])
         ),
       }
     })
     return { ...base, cells: rows }
   }
 
-  if (existing.cells && typeof existing.cells === 'object') {
-    const rows = Array.from({ length: 12 }, () => {
+  if (def.hasRows && existing.cells && typeof existing.cells === 'object') {
+    const rows = Array.from({ length: rowCount }, () => {
       const row = {}
-      COLUMNS.forEach(({ key }) => {
+      columns.forEach(({ key }) => {
         const old = existing.cells[key]
         row[key] = {
           x: old?.x ?? 0, y: old?.y ?? 0,
@@ -153,7 +171,7 @@ const buildInitialConfig = (existing) => {
 // FieldTree — left panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-const FieldTree = ({ config, selected, onSelect }) => {
+const FieldTree = ({ config, selected, onSelect, columns = COLUMNS, extraColumns = EXTRA_COLUMNS }) => {
   const [scoreboardOpen, setScoreboardOpen] = useState(true)
   const [expandedRows, setExpandedRows]     = useState(() => new Set([0]))
   const [extrasOpen, setExtrasOpen]         = useState(false)
@@ -171,10 +189,11 @@ const FieldTree = ({ config, selected, onSelect }) => {
     }
   }, [selected])
 
-  const placedColCount = COLUMNS.filter(col =>
-    Array.isArray(config.cells) && config.cells.some(row => isPlaced(row?.[col.key]))
+  const rowCount = Array.isArray(config.cells) ? config.cells.length : 0
+  const placedColCount = columns.filter(col =>
+    rowCount > 0 && config.cells.some(row => isPlaced(row?.[col.key]))
   ).length
-  const totalExtra = EXTRA_COLUMNS.filter(col => isPlaced(config.extra_fields?.[col.key])).length
+  const totalExtra = extraColumns.filter(col => isPlaced(config.extra_fields?.[col.key])).length
 
   return (
     <div className="me-tree">
@@ -185,19 +204,19 @@ const FieldTree = ({ config, selected, onSelect }) => {
       >
         <ChevronDown size={14} className={`me-tree-section-chevron ${scoreboardOpen ? 'open' : ''}`} />
         <span className="me-tree-section-label">Scoreboard</span>
-        <span className="me-tree-section-sub">12 rows · {COLUMNS.length} cols</span>
+        <span className="me-tree-section-sub">{rowCount} rows · {columns.length} cols</span>
         {placedColCount > 0 && (
-          <span className="me-tree-section-badge">{placedColCount}/{COLUMNS.length} cols</span>
+          <span className="me-tree-section-badge">{placedColCount}/{columns.length} cols</span>
         )}
       </button>
 
-      {scoreboardOpen && (
+      {scoreboardOpen && rowCount > 0 && (
         <div className="me-tree-section-body">
-          {Array.from({ length: 12 }, (_, rowIdx) => {
-            const row         = Array.isArray(config.cells) ? (config.cells[rowIdx] || {}) : {}
+          {Array.from({ length: rowCount }, (_, rowIdx) => {
+            const row         = config.cells[rowIdx] || {}
             const expanded    = expandedRows.has(rowIdx)
             const rowSelected = selected?.section === 'cells' && selected?.rowIdx === rowIdx
-            const placedInRow = COLUMNS.filter(col => isPlaced(row[col.key])).length
+            const placedInRow = columns.filter(col => isPlaced(row[col.key])).length
 
             return (
               <div key={rowIdx} className="me-tree-row-group">
@@ -208,13 +227,13 @@ const FieldTree = ({ config, selected, onSelect }) => {
                   <ChevronRight size={12} className={`me-tree-chevron ${expanded ? 'open' : ''}`} />
                   <span className="me-tree-row-num">Row {rowIdx + 1}</span>
                   {placedInRow > 0 && (
-                    <span className="me-tree-row-badge">{placedInRow}/{COLUMNS.length}</span>
+                    <span className="me-tree-row-badge">{placedInRow}/{columns.length}</span>
                   )}
                 </button>
 
                 {expanded && (
                   <div className="me-tree-col-list">
-                    {COLUMNS.map(col => {
+                    {columns.map(col => {
                       const coords  = row[col.key]
                       const placed  = isPlaced(coords)
                       const skipped = isSkipped(coords)
@@ -248,16 +267,16 @@ const FieldTree = ({ config, selected, onSelect }) => {
       >
         <ChevronDown size={14} className={`me-tree-section-chevron ${extrasOpen ? 'open' : ''}`} />
         <span className="me-tree-section-label">Extra Fields</span>
-        <span className="me-tree-section-sub">{EXTRA_COLUMNS.length} fields</span>
+        <span className="me-tree-section-sub">{extraColumns.length} fields</span>
         {totalExtra > 0 && (
-          <span className="me-tree-section-badge">{totalExtra}/{EXTRA_COLUMNS.length}</span>
+          <span className="me-tree-section-badge">{totalExtra}/{extraColumns.length}</span>
         )}
       </button>
 
       {extrasOpen && (
         <div className="me-tree-section-body">
           <div className="me-tree-col-list me-tree-extras">
-            {EXTRA_COLUMNS.map(col => {
+            {extraColumns.map(col => {
               const coords  = config.extra_fields?.[col.key]
               const placed  = isPlaced(coords)
               const skipped = isSkipped(coords)
@@ -288,7 +307,7 @@ const FieldTree = ({ config, selected, onSelect }) => {
 // Features: click-to-place, live preview, snap guides, click-to-select, drag-to-move
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, onPlace, onSelect, snapEnabled }) => {
+const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, onPlace, onSelect, snapEnabled, columns = COLUMNS, extraColumns = EXTRA_COLUMNS, dummyRows = DUMMY_ROWS_BY_TYPE[DEFAULT_RENDER_TYPE] }) => {
   const [dims, setDims]     = useState({ w: 0, h: 0 })
   const [hover, setHover]   = useState(null)   // { nx, ny, dx, dy, snapX, snapY }
   const [drag, setDrag]     = useState(null)   // { key: 'cell-r-c'|'extra-k', startNx, startNy, origX, origY }
@@ -363,7 +382,7 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
     const sbFont = config.scoreboard?.font_path || FONT_OPTIONS[0]
     fonts.add(sbFont)
     ;(Array.isArray(config.cells) ? config.cells : []).forEach(row => {
-      COLUMNS.forEach(col => { if (row?.[col.key]?.font_path) fonts.add(row[col.key].font_path) })
+      columns.forEach(col => { if (row?.[col.key]?.font_path) fonts.add(row[col.key].font_path) })
     })
     Object.values(config.extra_fields || {}).forEach(f => { if (f?.font_path) fonts.add(f.font_path) })
     fetchFontMetrics([...fonts]).then(() => forceUpdate(n => n + 1))
@@ -395,7 +414,7 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
     if (Array.isArray(config.cells)) {
       for (let rowIdx = 0; rowIdx < config.cells.length; rowIdx++) {
         const row = config.cells[rowIdx] || {}
-        for (const col of COLUMNS) {
+        for (const col of columns) {
           const c = row[col.key]
           if (!isPlaced(c)) continue
           const cx = c.x * sx, cy = c.y * sy
@@ -405,7 +424,7 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
         }
       }
     }
-    for (const col of EXTRA_COLUMNS) {
+    for (const col of extraColumns) {
       const c = config.extra_fields?.[col.key]
       if (!isPlaced(c)) continue
       const img2 = imgRef.current
@@ -458,7 +477,7 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
       const rawNy = c.ny
       const rowIdx = drag.section === 'cells' ? drag.rowIdx : -1
       const { nx: snappedNx, ny: snappedNy, snapX, snapY } = applySnap(
-        rawNx, rawNy, config.cells, drag.colKey, rowIdx, snapEnabled
+        rawNx, rawNy, config.cells, drag.colKey, rowIdx, snapEnabled, columns
       )
       setHover({ ...c, nx: snappedNx, ny: snappedNy, snapX, snapY, isDragging: true })
       return
@@ -467,7 +486,7 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
     if (!selected) { setHover(null); return }
     const rowIdx = selected.section === 'cells' ? selected.rowIdx : -1
     const { nx: snappedNx, ny: snappedNy, snapX, snapY } = applySnap(
-      c.nx, c.ny, config.cells, selected.colKey, rowIdx, snapEnabled
+      c.nx, c.ny, config.cells, selected.colKey, rowIdx, snapEnabled, columns
     )
     setHover({ ...c, nx: snappedNx, ny: snappedNy, snapX, snapY })
   }, [getNaturalCoords, drag, selected, config.cells, snapEnabled, imgRef])
@@ -521,11 +540,21 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
   const sbFontPath = sb.font_path  || FONT_OPTIONS[0]
   const sbSize     = sb.font_size  || 130
 
+  // Sample values for extra-field overlays (schedule fields use the type
+  // registry's samples so previews show a full card)
+  const typeDef = getRenderTypeDef(theme?.type || DEFAULT_RENDER_TYPE)
+  const mockExtra = {}
+  extraColumns.forEach(c => {
+    mockExtra[c.key] = MOCK_EXTRA[c.key]
+      ?? (typeDef.fields.find(f => f.key === c.key)?.sample ?? c.label)
+  })
+  mockExtra['lazarflow-watermark'] = 'lazarflow.app'
+
   // Build text items
   const textItems = []
   if (Array.isArray(config.cells)) {
     config.cells.forEach((row, rowIdx) => {
-      COLUMNS.forEach(col => {
+      columns.forEach(col => {
         const coords = row?.[col.key]
         if (!coords || coords.skipped || (coords.x === 0 && coords.y === 0)) return
         const isActive  = selected?.section === 'cells' && selected?.rowIdx === rowIdx && selected?.colKey === col.key
@@ -539,7 +568,7 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
         textItems.push({
           key: `cell-${rowIdx}-${col.key}`,
           x: px, y: py,
-          value: String(DUMMY_TEAMS[rowIdx]?.[col.key] ?? ''),
+          value: String(dummyRows[rowIdx]?.[col.key] ?? ''),
           label: `${col.label} · Row ${rowIdx + 1}`,
           color, fontSize: fontSizePx,
           family: getFontFamily(fontPath),
@@ -549,7 +578,7 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
       })
     })
   }
-  EXTRA_COLUMNS.forEach(col => {
+  extraColumns.forEach(col => {
     const coords = config.extra_fields?.[col.key]
     if (!coords || coords.skipped || (coords.x === 0 && coords.y === 0)) return
     const isActive  = selected?.section === 'extra' && selected?.colKey === col.key
@@ -563,7 +592,7 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
     textItems.push({
       key: `extra-${col.key}`,
       x: px, y: py,
-      value: MOCK_EXTRA[col.key] ?? col.key,
+      value: mockExtra[col.key] ?? col.key,
       label: col.label,
       color, fontSize: fontSizePx,
       family: getFontFamily(fontPath),
@@ -767,14 +796,14 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
 // Includes: Position, Alignment, Font, Color, Skip, Bulk column nudge, Copy layout
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacing, onSelect }) => {
+const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacing, onSelect, columns = COLUMNS, extraColumns = EXTRA_COLUMNS }) => {
   const [spacing, setSpacing] = useState(0)
 
   const coords = selected?.section === 'extra'
     ? config.extra_fields?.[selected.colKey]
     : (Array.isArray(config.cells) ? config.cells[selected?.rowIdx]?.[selected?.colKey] : null)
 
-  const allLabels = [...COLUMNS, ...EXTRA_COLUMNS]
+  const allLabels = [...columns, ...extraColumns]
   const fieldMeta = allLabels.find(c => c.key === selected?.colKey)
 
   const placed  = isPlaced(coords)
@@ -997,7 +1026,16 @@ const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacin
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
-  const [config,    setConfig]    = useState(() => buildInitialConfig(theme.mapping_config))
+  // Render type drives the field schema: which columns exist, how many rows,
+  // which extra fields are available, and what the preview overlays show.
+  const renderType   = theme?.type || DEFAULT_RENDER_TYPE
+  const typeDef      = getRenderTypeDef(renderType)
+  const columns      = COLUMNS_BY_TYPE[renderType] || COLUMNS
+  const extraColumns = EXTRA_COLUMNS_BY_TYPE[renderType] || EXTRA_COLUMNS
+  const dummyRows    = DUMMY_ROWS_BY_TYPE[renderType] || []
+  const rowCount     = typeDef.hasRows ? (DEFAULT_ROWS_BY_TYPE[renderType] || 12) : 0
+
+  const [config,    setConfig]    = useState(() => buildInitialConfig(theme.mapping_config, renderType))
   const [history,   setHistory]   = useState([])   // undo stack
   const [future,    setFuture]    = useState([])   // redo stack
   const [dirty,     setDirty]     = useState(false)
@@ -1066,8 +1104,10 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
           else next.extra_fields[sel.colKey][k] = v
         })
       } else {
-        if (!Array.isArray(next.cells)) next.cells = Array.from({ length: 12 }, () => ({}))
-        while (next.cells.length < 12) next.cells.push({})
+        if (!Array.isArray(next.cells) || next.cells.length === 0) {
+          next.cells = Array.from({ length: rowCount }, () => ({}))
+        }
+        while (next.cells.length < rowCount) next.cells.push({})
         if (!next.cells[sel.rowIdx]) next.cells[sel.rowIdx] = {}
         if (!next.cells[sel.rowIdx][sel.colKey])
           next.cells[sel.rowIdx][sel.colKey] = { x: 0, y: 0, alignment: DEFAULT_ALIGN[sel.colKey] ?? 'center' }
@@ -1111,12 +1151,12 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
     })
   }, [commitConfig])
 
-  // ── Apply spacing to ALL columns — redistributes all 12 rows using given Y gap ──
+  // ── Apply spacing to ALL columns — redistributes all rows using given Y gap ──
   // Also copies color_rgb, font_size, font_path, alignment from each column's Row 1
   const handleApplySpacing = useCallback((spacing) => {
     commitConfig(next => {
       if (!Array.isArray(next.cells)) return next
-      COLUMNS.forEach(({ key }) => {
+      columns.forEach(({ key }) => {
         const row0Cell = next.cells[0]?.[key]
         if (!isPlaced(row0Cell)) return
         const { x: baseX, y: baseY, alignment, font_size, font_path, color_rgb } = row0Cell
@@ -1139,10 +1179,10 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
 
   // ── Navigate to next / previous cell ──
   const allCells = [
-    ...Array.from({ length: 12 }, (_, rowIdx) =>
-      COLUMNS.map(col => ({ section: 'cells', rowIdx, colKey: col.key }))
+    ...Array.from({ length: rowCount }, (_, rowIdx) =>
+      columns.map(col => ({ section: 'cells', rowIdx, colKey: col.key }))
     ).flat(),
-    ...EXTRA_COLUMNS.map(col => ({ section: 'extra', rowIdx: null, colKey: col.key })),
+    ...extraColumns.map(col => ({ section: 'extra', rowIdx: null, colKey: col.key })),
   ]
 
   const navigateCell = useCallback((dir) => {
@@ -1231,15 +1271,22 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
     try {
       const extraData = Object.fromEntries(
         Object.keys(config.extra_fields || {}).map(k => [
-          k, k === 'lazarflow-watermark' ? 'lazarflow.app' : '',
+          k, k === 'lazarflow-watermark' ? 'lazarflow.app' : (MOCK_EXTRA[k] ?? ''),
         ])
       )
+      // For schedule cards the mock values live on the type registry's samples
+      Object.keys(extraData).forEach(k => {
+        if (!extraData[k]) {
+          extraData[k] = typeDef.fields.find(f => f.key === k)?.sample ?? ''
+        }
+      })
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/render/preview-render`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           imageUrl: theme.url,
           mappingConfig: config,
+          renderType,
           extraData,
           adjustments: { contrast: 1.0, saturation: 1.0, brightness: 1.0, sharpness: 1.0 },
         }),
@@ -1355,7 +1402,13 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
         <div className="me-body">
 
           <aside className="me-panel me-panel-left">
-            <FieldTree config={config} selected={selected} onSelect={handleTreeSelect} />
+            <FieldTree
+              config={config}
+              selected={selected}
+              onSelect={handleTreeSelect}
+              columns={columns}
+              extraColumns={extraColumns}
+            />
           </aside>
 
           <main className="me-canvas-area">
@@ -1372,6 +1425,9 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
                 onPlace={handlePlace}
                 onSelect={setSelected}
                 snapEnabled={snapEnabled}
+                columns={columns}
+                extraColumns={extraColumns}
+                dummyRows={dummyRows}
               />
             )}
           </main>
@@ -1384,6 +1440,8 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
               onCopyLayout={handleCopyLayout}
               onApplySpacing={handleApplySpacing}
               onSelect={setSelected}
+              columns={columns}
+              extraColumns={extraColumns}
             />
           </aside>
 
@@ -1396,6 +1454,7 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
           theme={theme}
           imgRef={imgRef}
           config={config}
+          renderType={renderType}
           onApply={handleApplyAiConfig}
           onClose={() => setAskAiOpen(false)}
         />
