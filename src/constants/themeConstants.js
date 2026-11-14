@@ -173,6 +173,7 @@ export const RENDER_TYPES = [
       { key: 'kp',    label: 'Kills',     sample: '246' },
       { key: 'mp',    label: 'Matches',   sample: '6' },
       { key: 'total', label: 'Total',     sample: '428' },
+      { key: 'logo',  label: 'Logo',      isLogo: true },
     ],
   },
   {
@@ -183,6 +184,7 @@ export const RENDER_TYPES = [
       { key: 'team',   label: 'Team',   sample: 'Thunder Hawks' },
       { key: 'kills',  label: 'Kills',  sample: '23' },
       { key: 'mp',     label: 'Matches', sample: '6' },
+      { key: 'logo',   label: 'Logo',   isLogo: true },
     ],
   },
   {
@@ -190,6 +192,7 @@ export const RENDER_TYPES = [
     fields: [
       { key: 'slot', label: 'Slot', sample: '1' },
       { key: 'team', label: 'Team', sample: 'Thunder Hawks' },
+      { key: 'logo', label: 'Logo', isLogo: true },
     ],
   },
   {
@@ -240,7 +243,7 @@ export const EXTRA_COLUMNS = [
 
 // Per-type column sets for the mapping editor (row types only)
 export const COLUMNS_BY_TYPE = Object.fromEntries(
-  RENDER_TYPES.filter(t => t.hasRows).map(t => [t.id, t.fields.map(f => ({ key: f.key, label: f.label }))])
+  RENDER_TYPES.filter(t => t.hasRows).map(t => [t.id, t.fields.map(f => ({ key: f.key, label: f.label, ...(f.isLogo ? { isLogo: true } : {}) }))])
 )
 
 // Schedule cards render their fields via extra_fields (no cells)

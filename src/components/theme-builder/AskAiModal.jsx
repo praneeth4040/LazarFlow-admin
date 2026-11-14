@@ -108,6 +108,9 @@ const schemaBlock = (ctx) => {
 
   if (ctx.hasRows) {
     const rowSkeleton = ctx.columns.map(c => {
+      if (c.isLogo) {
+        return `      "${c.key}": { "x": 0, "y": 0, "width": 0, "height": 0 }`
+      }
       const align = c.key === 'team' || c.key === 'player' ? 'left' : 'center'
       return `      "${c.key}": { "x": 0, "y": 0, "alignment": "${align}" }`
     }).join(',\n')
@@ -144,14 +147,14 @@ First read the SPECIAL NOTES section above if present — it describes specifics
 4. Choose each column's alignment from the visual layout (numbers centered on their column, names left-aligned).
 5. Estimate font_size from the rendered text height in px if it clearly differs from the default; set it on scoreboard or per-field.
 6. If the design shows fewer than ${ctx.rowCount} visible data rows, still output ${ctx.rowCount} row objects and mark the fields of non-visible rows with "skipped": true.
-7. Ignore logos, backgrounds and decorative art — map only real text areas. Use your best judgment for colors: e.g. a gold rank-1 color → give that cell a "color_rgb" override.`
+7. Team logo boxes: for the "logo" column, output { x, y, width, height } of the logo image area on each row (the box where a team badge/avatar is drawn). Do not give logo cells alignment, font_size, font_path or color_rgb. Map logos only when the design clearly shows a team badge/avatar per row — otherwise omit the logo key.`
   }
   return `INSTRUCTIONS
 First read the SPECIAL NOTES section above if present — it describes specifics of this exact design.
 1. Look at the attached image and find each text area of the card: title, times, and any other labeled text.
 2. Choose each field's alignment from the visual layout (centered text → "center", left-edge text → "left").
 3. Estimate font_size per field from the rendered text height in px when fields clearly differ in size.
-4. Ignore logos, backgrounds and decorative art — map only real text areas.
+4. Ignore logos, backgrounds and decorative art — schedule cards have no logo column.
 5. Do NOT output a "cells" array — schedule cards have no data rows.`
 }
 
@@ -220,7 +223,7 @@ const coerceColor = (v) => {
   return nums
 }
 
-const normalizeField = (raw, warnings, label) => {
+const normalizeField = (raw, warnings, label, isLogo = false) => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     warnings.push(`${label}: not an object — treated as unmapped`)
     return { x: 0, y: 0, alignment: 'center' }
@@ -256,6 +259,22 @@ const normalizeField = (raw, warnings, label) => {
   else if (raw.color_rgb != null) warnings.push(`${label}: invalid color_rgb — dropped`)
 
   if (raw.skipped === true) out.skipped = true
+
+  // Logo slots: geometry box instead of text styling
+  if (isLogo) {
+    delete out.alignment
+    delete out.font_size
+    delete out.font_path
+    delete out.color_rgb
+    const w = Number(raw.width), h = Number(raw.height)
+    if (Number.isFinite(w) && w > 0) out.width = Math.round(w)
+    else warnings.push(`${label}: missing/invalid width — logo slot needs a width`)
+    if (Number.isFinite(h) && h > 0) out.height = Math.round(h)
+    else warnings.push(`${label}: missing/invalid height — logo slot needs a height`)
+    if (['square', 'circle', 'rounded'].includes(raw.shape)) out.shape = raw.shape
+    const op = Number(raw.opacity)
+    if (Number.isFinite(op) && op > 0 && op <= 1) out.opacity = Math.round(op * 100) / 100
+  }
 
   return out
 }
@@ -293,7 +312,7 @@ const normalizeAiConfig = (raw, currentConfig, ctx) => {
           warnings.push(`cells[${i}]: unknown column "${key}" — dropped`)
           return
         }
-        row[key] = normalizeField(val, warnings, `cells[${i}].${key}`)
+        row[key] = normalizeField(val, warnings, `cells[${i}].${key}`, key === 'logo')
       })
       return row
     })

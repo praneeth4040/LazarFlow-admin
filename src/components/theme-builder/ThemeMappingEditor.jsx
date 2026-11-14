@@ -4,8 +4,7 @@ import {
   Save, Loader2, CheckCircle2, AlertCircle, ArrowLeft, Crosshair,
   ChevronDown, ChevronRight, AlignLeft, AlignCenter, AlignRight,
   SkipForward, RotateCcw, Type, Move, Eye, X, Download,
-  Magnet, ChevronsRight, ArrowUpDown, Sparkles,
-} from 'lucide-react'
+  Magnet, ChevronsRight, ArrowUpDown, Sparkles, ImagePlus } from 'lucide-react'
 import {
   FONT_OPTIONS, FONT_FAMILY_MAP,
   fetchFontMetrics, getYCorrection, COLUMNS, EXTRA_COLUMNS,
@@ -565,6 +564,19 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
         const yCorr     = getYCorrection(fontPath, fontSizePx)
         const px        = isDragged && hover ? hover.nx * sx : coords.x * sx
         const py        = isDragged && hover ? hover.ny * sy - yCorr : coords.y * sy - yCorr
+        if (col.isLogo) {
+          // Logo slot — rendered as a resizable box, not text
+          textItems.push({
+            key: `cell-${rowIdx}-${col.key}`,
+            isLogo: true,
+            x: px, y: py,
+            width: (coords.width || 120) * sx,
+            height: (coords.height || 120) * sy,
+            label: `${col.label} · Row ${rowIdx + 1}`,
+            isActive, isDragged,
+          })
+          return
+        }
         textItems.push({
           key: `cell-${rowIdx}-${col.key}`,
           x: px, y: py,
@@ -644,8 +656,34 @@ const CanvasOverlay = ({ theme, imgRef, imgLoaded, onImgLoad, config, selected, 
               onMouseUp={handleMouseUp}
               onMouseLeave={() => { setHover(null); if (drag) setDrag(null); panRef.current = null }}
             >
-      {/* Text labels */}
-      {textItems.map(item => (
+      {/* Text labels + logo slot boxes */}
+      {textItems.map(item => item.isLogo ? (
+        <div
+          key={item.key}
+          style={{
+            position:      'absolute',
+            left:           item.x,
+            top:            item.y,
+            width:          item.width,
+            height:         item.height,
+            border:        '2px dashed rgba(26,115,232,0.75)',
+            borderRadius:  8,
+            background:    'rgba(26,115,232,0.08)',
+            display:       'flex',
+            alignItems:    'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+            zIndex:         (item.isActive || item.isDragged) ? 20 : 10,
+            outline:        (item.isActive || item.isDragged) ? '1.5px solid #8b5cf6' : 'none',
+            outlineOffset:  2,
+          }}
+        >
+          <ImagePlus size={18} color="rgba(26,115,232,0.8)" />
+          {(item.isActive || item.isDragged) && (
+            <span className="me-canvas-sel-tag">{item.label}</span>
+          )}
+        </div>
+      ) : (
         <div
           key={item.key}
           style={{
@@ -805,6 +843,7 @@ const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacin
 
   const allLabels = [...columns, ...extraColumns]
   const fieldMeta = allLabels.find(c => c.key === selected?.colKey)
+  const isLogoCell = selected?.section === 'cells' && !!fieldMeta?.isLogo
 
   const placed  = isPlaced(coords)
   const skipped = isSkipped(coords)
@@ -895,6 +934,50 @@ const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacin
           </div>
         </div>
 
+        {/* ── Logo slot geometry (logo cells only) ── */}
+        {isLogoCell && (
+          <>
+            <div className="me-insp-section">
+              <div className="me-insp-section-label"><ImagePlus size={13} /> Logo Slot Size</div>
+              <div className="me-insp-row">
+                <div className="me-insp-field">
+                  <label className="me-insp-label">Width (px)</label>
+                  <input type="number" className="me-insp-input"
+                    value={coords?.width ?? 120} min={10}
+                    onChange={e => set({ width: parseInt(e.target.value) || 120 })} />
+                </div>
+                <div className="me-insp-field">
+                  <label className="me-insp-label">Height (px)</label>
+                  <input type="number" className="me-insp-input"
+                    value={coords?.height ?? 120} min={10}
+                    onChange={e => set({ height: parseInt(e.target.value) || 120 })} />
+                </div>
+              </div>
+              <div className="me-insp-row">
+                <div className="me-insp-field">
+                  <label className="me-insp-label">Shape</label>
+                  <select className="me-insp-select" value={coords?.shape || 'square'}
+                    onChange={e => set({ shape: e.target.value === 'square' ? undefined : e.target.value })}>
+                    <option value="square">Square</option>
+                    <option value="circle">Circle</option>
+                    <option value="rounded">Rounded</option>
+                  </select>
+                </div>
+                <div className="me-insp-field">
+                  <label className="me-insp-label">Opacity ({Math.round((coords?.opacity ?? 1) * 100)}%)</label>
+                  <input type="range" min={0.1} max={1} step={0.05} style={{ width: '100%' }}
+                    value={coords?.opacity ?? 1}
+                    onChange={e => set({ opacity: parseFloat(e.target.value) || 1 })} />
+                </div>
+              </div>
+              <span className="me-insp-inherited">
+                The team's logo is drawn into this box on every render.
+              </span>
+            </div>
+          </>
+        )}
+        {!isLogoCell && (
+          <>
         {/* ── Alignment ── */}
         <div className="me-insp-section">
           <div className="me-insp-section-label"><AlignCenter size={13} /> Alignment</div>
@@ -966,6 +1049,9 @@ const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacin
           </div>
           {!coords?.color_rgb && <span className="me-insp-inherited">Inherited from scoreboard</span>}
         </div>
+
+          </>
+        )}
 
         {/* ── Skip / Restore ── */}
         <div className="me-insp-section">
