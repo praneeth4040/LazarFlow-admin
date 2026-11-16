@@ -855,6 +855,12 @@
 .job-token-pill.cost { background: rgba(124, 58, 237, 0.10); color: #6d28d9; }
 
 /* Model column — the job's own stamped model id */
+.job-model-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+}
 .job-model-pill {
   display: inline-block;
   max-width: 200px;
@@ -869,6 +875,15 @@
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10.5px;
   color: var(--text-secondary, #475569);
+}
+.job-model-link {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-tertiary, #94a3b8);
+  transition: color 0.15s;
+}
+.job-model-link:hover {
+  color: var(--primary-hover, #1d4ed8);
 }
 
 .job-time-cell {

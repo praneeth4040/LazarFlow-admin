@@ -9,16 +9,13 @@ import {
 } from 'lucide-react'
 import './OCRJobsView.css'
 
-// Popular OpenRouter OCR/Vision model pricing presets (per 1 Million tokens in USD)
+// The two models the backend actually uses (per-token pricing per 1M USD).
+// Everything else was removed on Praneeth's call — the selector mirrors reality.
 export const OPENROUTER_MODELS = [
-  { id: 'qwen/qwen3-vl-30b-a3b-instruct', name: 'Qwen 3 VL 30B A3B Instruct (Default)', inputRate: 0.13, outputRate: 0.52 },
-  { id: 'qwen/qwen3-vl-32b-instruct', name: 'Qwen 3 VL 32B Instruct', inputRate: 0.104, outputRate: 0.416 },
-  { id: 'qwen/qwen2.5-vl-72b-instruct', name: 'Qwen 2.5 VL 72B Instruct', inputRate: 0.80, outputRate: 1.00 },
-  { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini', inputRate: 0.15, outputRate: 0.60 },
-  { id: 'google/gemini-2.0-flash-001', name: 'Google Gemini 2.0 Flash', inputRate: 0.10, outputRate: 0.40 },
-  { id: 'google/gemini-flash-1.5', name: 'Google Gemini 1.5 Flash', inputRate: 0.075, outputRate: 0.30 },
-  { id: 'meta-llama/llama-3.2-11b-vision-instruct', name: 'Meta Llama 3.2 11B Vision', inputRate: 0.055, outputRate: 0.055 },
-  { id: 'anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet', inputRate: 3.00, outputRate: 15.00 },
+  // V3_MODEL in routes/ocr.py — the vision LLM for extract-results / process-lobby
+  { id: 'qwen/qwen3.7-flash', name: 'Qwen 3.7 Flash (LLM — default)', inputRate: 0.03, outputRate: 0.13 },
+  // The lobby separator's entity-extraction model (extract_teams + cell prep)
+  { id: 'scaledown/extract', name: 'ScaleDown Extract (separator)', inputRate: 0.04, outputRate: 0 },
 ]
 
 // All job_type values the backend writes to ocr_jobs (routes/ocr.py):
@@ -47,8 +44,8 @@ const calculateJobCostUSD = (tokenUsage, modelConfig, modelRates = {}) => {
   const output = tokenUsage.output_tokens || 0
 
   const rates = modelRates[tokenUsage.model] || modelConfig || {}
-  const inputRate = rates.inputRate ?? 0.13
-  const outputRate = rates.outputRate ?? 0.52
+  const inputRate = rates.inputRate ?? 0.03
+  const outputRate = rates.outputRate ?? 0.13
 
   return (input / 1_000_000) * inputRate + (output / 1_000_000) * outputRate
 }
@@ -72,15 +69,18 @@ const OCRJobsView = ({ addLog }) => {
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
 
-  // Currency & OpenRouter Model Selection (Defaulting to INR ₹ & Qwen 3 VL)
+  // Currency & OpenRouter Model Selection (Defaulting to INR ₹ & Qwen 3.7 Flash)
   const [currency, setCurrency] = useState('INR') // 'INR' or 'USD'
   const [inrRate, setInrRate] = useState(87.0)
-  const [selectedModelId, setSelectedModelId] = useState('qwen/qwen3-vl-30b-a3b-instruct')
+  const [selectedModelId, setSelectedModelId] = useState('qwen/qwen3.7-flash')
   const [openRouterModels, setOpenRouterModels] = useState(OPENROUTER_MODELS)
   const [livePricingLoaded, setLivePricingLoaded] = useState(false)
-  // id → {inputRate, outputRate} for EVERY model OpenRouter lists — lets us
-  // price each job at its own stamped model instead of the admin-selected one
-  const [modelRates, setModelRates] = useState({})
+  // id → {inputRate, outputRate} — seeded with the configured models so each
+  // job always prices at its own stamped model; the live OpenRouter fetch
+  // only ever EXTENDS this map with ids we haven't configured.
+  const [modelRates, setModelRates] = useState(
+    () => Object.fromEntries(OPENROUTER_MODELS.map(m => [m.id, { inputRate: m.inputRate, outputRate: m.outputRate }]))
+  )
 
   // UI state for active tab section
   const [activeAnalyticsTab, setActiveAnalyticsTab] = useState('top_users') // 'top_users', 'top_lobbies', 'job_types', 'daily_ledger'
@@ -104,7 +104,9 @@ const OCRJobsView = ({ addLog }) => {
     }
   }
 
-  // Fetch live OpenRouter model pricing from OpenRouter public API
+  // Fetch OpenRouter's public model list to EXTEND the rate map for any model
+  // ids we don't have configured. The two preset rates above are authoritative
+  // (they're the prices we pay) — live data never overrides them.
   const fetchOpenRouterPricing = async () => {
     try {
       const res = await fetch('https://openrouter.ai/api/v1/models')
@@ -119,16 +121,7 @@ const OCRJobsView = ({ addLog }) => {
             }
           }
         })
-
-        // Update presets with exact live pricing from OpenRouter
-        setOpenRouterModels(prev => prev.map(m => {
-          const live = liveMap[m.id]
-          if (live) {
-            return { ...m, inputRate: live.prompt, outputRate: live.completion }
-          }
-          return m
-        }))
-        setModelRates(liveMap)
+        setModelRates(prev => ({ ...liveMap, ...prev }))   // configured rates win
         setLivePricingLoaded(true)
       }
     } catch (err) {
@@ -810,10 +803,10 @@ const OCRJobsView = ({ addLog }) => {
         <div className="job-model-note">
           <Info size={13} />
           <span>
-            Calculated in <strong>{currency === 'INR' ? 'INR (₹)' : 'USD ($)'}</strong> via OpenRouter ({currentModelConfig.name}):
-            {' '}{formatRate(currentModelConfig.inputRate)} / 1M input · {formatRate(currentModelConfig.outputRate)} / 1M output
+            Calculated in <strong>{currency === 'INR' ? 'INR (₹)' : 'USD ($)'}</strong> — each job is priced at its own model
+            ({OPENROUTER_MODELS.map(m => `${m.name.split('(')[0].trim()} ${formatRate(m.inputRate)}/${formatRate(m.outputRate)} per 1M`).join(' · ')})
+            ; the selector only sets the rate used for jobs that carry no model stamp
             {currency === 'INR' ? ` · exchange rate ₹${inrRate.toFixed(2)} per $1 USD` : ''}
-            {livePricingLoaded ? ' · live pricing' : ''}
           </span>
         </div>
 
@@ -865,8 +858,22 @@ const OCRJobsView = ({ addLog }) => {
                         </span>
                       </td>
                       <td>
-                        <span className="job-model-pill" title={jobModel || 'No model stamp on this job'}>
-                          {jobModel || '—'}
+                        <span className="job-model-cell">
+                          <span className="job-model-pill" title={jobModel || 'No model stamp on this job'}>
+                            {jobModel || '—'}
+                          </span>
+                          {jobModel && (
+                            <a
+                              className="job-model-link"
+                              href={`https://openrouter.ai/${jobModel}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={`Open ${jobModel} on OpenRouter`}
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <Info size={13} />
+                            </a>
+                          )}
                         </span>
                       </td>
                       <td>
