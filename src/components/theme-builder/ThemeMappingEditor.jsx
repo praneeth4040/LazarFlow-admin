@@ -4,7 +4,7 @@ import {
   Save, Loader2, CheckCircle2, AlertCircle, ArrowLeft, Crosshair,
   ChevronDown, ChevronRight, AlignLeft, AlignCenter, AlignRight,
   SkipForward, RotateCcw, Type, Move, Eye, X, Download,
-  Magnet, ChevronsRight, ArrowUpDown, Sparkles, ImagePlus } from 'lucide-react'
+  Magnet, ChevronsRight, ArrowUpDown, Sparkles, ImagePlus, Swords } from 'lucide-react'
 import {
   FONT_OPTIONS, FONT_FAMILY_MAP,
   fetchFontMetrics, getYCorrection, COLUMNS, EXTRA_COLUMNS,
@@ -1130,6 +1130,9 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
   const [previewUrl,   setPreviewUrl]   = useState(null)
   const [previewError, setPreviewError] = useState('')
   const [previewOpen,  setPreviewOpen]  = useState(false)
+  // 'overall' renders lobby-aggregate dummy data; 'match' renders the same
+  // data as ONE stored match (finishing order, booyah, per-match MVP)
+  const [previewScope, setPreviewScope] = useState('overall')
 
   // Ask AI modal
   const [askAiOpen, setAskAiOpen] = useState(false)
@@ -1370,6 +1373,9 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
           renderType,
           extraData,
           adjustments: { contrast: 1.0, saturation: 1.0, brightness: 1.0, sharpness: 1.0 },
+          // Per-match preview — backend swaps in one stored-match dummy row set
+          ...(previewScope === 'match' && (renderType === 'points_table' || renderType === 'mvp')
+            ? { matchNumber: 1 } : {}),
         }),
       })
       if (!res.ok) {
@@ -1385,7 +1391,7 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
     } finally {
       setPreviewing(false)
     }
-  }, [config, theme.url, previewUrl])
+  }, [config, theme.url, previewUrl, previewScope, renderType])
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
@@ -1462,6 +1468,26 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
             >
               <Sparkles size={13} /> Ask AI
             </button>
+
+            {/* Preview scope — per-match rendering applies to these types only */}
+            {(renderType === 'points_table' || renderType === 'mvp') && (
+              <div className="me-preview-scope" role="group" aria-label="Preview scope">
+                <button
+                  className={`me-preview-scope-btn ${previewScope === 'overall' ? 'active' : ''}`}
+                  onClick={() => setPreviewScope('overall')}
+                  title="Preview with lobby-aggregate data"
+                >
+                  Overall
+                </button>
+                <button
+                  className={`me-preview-scope-btn ${previewScope === 'match' ? 'active' : ''}`}
+                  onClick={() => setPreviewScope('match')}
+                  title="Preview as one stored match (finishing order / per-match MVP)"
+                >
+                  <Swords size={11} /> Match
+                </button>
+              </div>
+            )}
 
             <button className="me-preview-server-btn" onClick={handleServerPreview} disabled={previewing}>
               {previewing
@@ -1549,7 +1575,14 @@ const ThemeMappingEditor = ({ theme, onClose, onSaved }) => {
         >
           <div className="me-preview-modal" onClick={e => e.stopPropagation()}>
             <div className="me-preview-modal-header">
-              <span className="me-preview-modal-title"><Eye size={15} /> Server Preview</span>
+              <span className="me-preview-modal-title">
+                <Eye size={15} /> Server Preview
+                {(renderType === 'points_table' || renderType === 'mvp') && (
+                  <span style={{ fontWeight: 500, opacity: 0.75 }}>
+                    {' '}· {previewScope === 'match' ? 'Match 1' : 'Overall'}
+                  </span>
+                )}
+              </span>
               <div className="me-preview-modal-actions">
                 <a href={previewUrl} download={`${theme.name || theme.id}_preview.png`}
                   className="me-preview-download-btn">

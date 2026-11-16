@@ -6860,6 +6860,40 @@
   cursor: not-allowed;
 }
 
+/* Overall / Match scope toggle beside the Server Preview button */
+.me-preview-scope {
+  display: flex;
+  align-items: center;
+  border: 1.5px solid var(--border-default, #dadce0);
+  border-radius: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.me-preview-scope-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 11px;
+  border: none;
+  background: var(--bg-primary, #fff);
+  color: var(--text-secondary, #5f6368);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.me-preview-scope-btn + .me-preview-scope-btn {
+  border-left: 1.5px solid var(--border-default, #dadce0);
+}
+.me-preview-scope-btn:hover {
+  background: var(--bg-secondary, #f8f9fa);
+}
+.me-preview-scope-btn.active {
+  background: var(--accent-soft, #e8f0fe);
+  color: var(--accent, #1a73e8);
+  font-weight: 600;
+}
+
 /* Modal backdrop — sits on top of the editor shell */
 .me-preview-modal-overlay {
   position: fixed;
