@@ -21,21 +21,36 @@ export const OPENROUTER_MODELS = [
   { id: 'anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet', inputRate: 3.00, outputRate: 15.00 },
 ]
 
-// Helper to calculate job cost in USD
-const calculateJobCostUSD = (tokenUsage, modelConfig) => {
+// All job_type values the backend writes to ocr_jobs (routes/ocr.py):
+// the two v3 async pipelines, their legacy sync counterparts, and extract_teams.
+export const JOB_TYPES = [
+  { type: 'extract_results_v3', label: 'Extract Results v3', family: 'extract' },
+  { type: 'extract_results',    label: 'Extract Results (legacy)', family: 'extract' },
+  { type: 'process_lobby_v3',   label: 'Process Lobby v3', family: 'lobby' },
+  { type: 'process_lobby',      label: 'Process Lobby (legacy)', family: 'lobby' },
+  { type: 'extract_teams',      label: 'Extract Teams', family: 'teams' },
+]
+const jobTypeLabel = (t) => JOB_TYPES.find(j => j.type === t)?.label || t
+
+// Statuses the backend actually writes (database_service/ocr_jobs.py)
+const JOB_STATUSES = ['done', 'failed', 'running', 'pending']
+
+// Helper to calculate job cost in USD.
+// Ground truth first: the engine-stamped cost_usd. Then the job's OWN model
+// priced from the live OpenRouter rate map. The admin-selected model is only
+// the last-resort estimate for legacy rows that carry no model stamp.
+const calculateJobCostUSD = (tokenUsage, modelConfig, modelRates = {}) => {
   if (!tokenUsage) return 0
   if (tokenUsage.cost_usd && tokenUsage.cost_usd > 0) return tokenUsage.cost_usd
 
   const input = tokenUsage.input_tokens || 0
   const output = tokenUsage.output_tokens || 0
 
-  const inputRate = modelConfig?.inputRate ?? 0.13
-  const outputRate = modelConfig?.outputRate ?? 0.52
+  const rates = modelRates[tokenUsage.model] || modelConfig || {}
+  const inputRate = rates.inputRate ?? 0.13
+  const outputRate = rates.outputRate ?? 0.52
 
-  const inputCost = (input / 1_000_000) * inputRate
-  const outputCost = (output / 1_000_000) * outputRate
-
-  return inputCost + outputCost
+  return (input / 1_000_000) * inputRate + (output / 1_000_000) * outputRate
 }
 
 const kTokens = (value) => `${(value / 1000).toFixed(1)}k`
@@ -63,6 +78,9 @@ const OCRJobsView = ({ addLog }) => {
   const [selectedModelId, setSelectedModelId] = useState('qwen/qwen3-vl-30b-a3b-instruct')
   const [openRouterModels, setOpenRouterModels] = useState(OPENROUTER_MODELS)
   const [livePricingLoaded, setLivePricingLoaded] = useState(false)
+  // id → {inputRate, outputRate} for EVERY model OpenRouter lists — lets us
+  // price each job at its own stamped model instead of the admin-selected one
+  const [modelRates, setModelRates] = useState({})
 
   // UI state for active tab section
   const [activeAnalyticsTab, setActiveAnalyticsTab] = useState('top_users') // 'top_users', 'top_lobbies', 'job_types', 'daily_ledger'
@@ -110,6 +128,7 @@ const OCRJobsView = ({ addLog }) => {
           }
           return m
         }))
+        setModelRates(liveMap)
         setLivePricingLoaded(true)
       }
     } catch (err) {
@@ -249,10 +268,14 @@ const OCRJobsView = ({ addLog }) => {
   // Aggregate stats based on filtered jobs
   const stats = useMemo(() => {
     const total = filteredJobs.length
-    const extractResultsCount = filteredJobs.filter(j => j.job_type === 'extract_results').length
-    const processLobbyCount = filteredJobs.filter(j => j.job_type === 'process_lobby').length
+    // Families mirror the backend's real job_type values (all 5 of them)
+    const extractResultsCount = filteredJobs.filter(j => j.job_type?.startsWith('extract_results')).length
+    const processLobbyCount = filteredJobs.filter(j => j.job_type?.startsWith('process_lobby')).length
+    const extractTeamsCount = filteredJobs.filter(j => j.job_type === 'extract_teams').length
     const doneCount = filteredJobs.filter(j => j.status === 'done').length
     const failedCount = filteredJobs.filter(j => j.status === 'failed').length
+    const runningCount = filteredJobs.filter(j => j.status === 'running').length
+    const pendingCount = filteredJobs.filter(j => j.status === 'pending').length
     const successRate = total > 0 ? Math.round((doneCount / total) * 100) : 0
 
     let totalInputTokens = 0
@@ -265,7 +288,7 @@ const OCRJobsView = ({ addLog }) => {
         const out = j.token_usage.output_tokens || 0
         totalInputTokens += inp
         totalOutputTokens += out
-        totalCostUSD += calculateJobCostUSD(j.token_usage, currentModelConfig)
+        totalCostUSD += calculateJobCostUSD(j.token_usage, currentModelConfig, modelRates)
       }
     })
 
@@ -273,15 +296,18 @@ const OCRJobsView = ({ addLog }) => {
       total,
       extractResultsCount,
       processLobbyCount,
+      extractTeamsCount,
       doneCount,
       failedCount,
+      runningCount,
+      pendingCount,
       successRate,
       totalInputTokens,
       totalOutputTokens,
       totalTokens: totalInputTokens + totalOutputTokens,
       totalCostUSD,
     }
-  }, [filteredJobs, currentModelConfig])
+  }, [filteredJobs, currentModelConfig, modelRates])
 
   // Top 4 Users Aggregation
   const top4Users = useMemo(() => {
@@ -302,7 +328,7 @@ const OCRJobsView = ({ addLog }) => {
       if (j.token_usage) {
         map[uid].inputTokens += j.token_usage.input_tokens || 0
         map[uid].outputTokens += j.token_usage.output_tokens || 0
-        map[uid].totalCostUSD += calculateJobCostUSD(j.token_usage, currentModelConfig)
+        map[uid].totalCostUSD += calculateJobCostUSD(j.token_usage, currentModelConfig, modelRates)
       }
     })
 
@@ -330,7 +356,7 @@ const OCRJobsView = ({ addLog }) => {
       if (j.token_usage) {
         map[lid].inputTokens += j.token_usage.input_tokens || 0
         map[lid].outputTokens += j.token_usage.output_tokens || 0
-        map[lid].totalCostUSD += calculateJobCostUSD(j.token_usage, currentModelConfig)
+        map[lid].totalCostUSD += calculateJobCostUSD(j.token_usage, currentModelConfig, modelRates)
       }
     })
 
@@ -339,23 +365,30 @@ const OCRJobsView = ({ addLog }) => {
       .slice(0, 4)
   }, [filteredJobs, lobbiesMap, currentModelConfig])
 
-  // Job Type Breakdown Split
+  // Job Type Breakdown Split — one bucket per job_type the backend actually
+  // writes (extract_results_v3 / extract_results / process_lobby_v3 /
+  // process_lobby / extract_teams), unknown types included rather than
+  // silently folded into another bucket.
   const jobTypeSplit = useMemo(() => {
-    const extract = { type: 'extract_results', label: 'Extract Results', jobs: 0, inputTokens: 0, outputTokens: 0, costUSD: 0 }
-    const process = { type: 'process_lobby', label: 'Process Lobby', jobs: 0, inputTokens: 0, outputTokens: 0, costUSD: 0 }
-
+    const map = new Map()
     filteredJobs.forEach(j => {
-      const target = j.job_type === 'extract_results' ? extract : process
+      const type = j.job_type || 'unknown'
+      if (!map.has(type)) {
+        map.set(type, { type, label: jobTypeLabel(type), jobs: 0, inputTokens: 0, outputTokens: 0, costUSD: 0 })
+      }
+      const target = map.get(type)
       target.jobs += 1
       if (j.token_usage) {
         target.inputTokens += j.token_usage.input_tokens || 0
         target.outputTokens += j.token_usage.output_tokens || 0
-        target.costUSD += calculateJobCostUSD(j.token_usage, currentModelConfig)
+        target.costUSD += calculateJobCostUSD(j.token_usage, currentModelConfig, modelRates)
       }
     })
-
-    return [extract, process]
-  }, [filteredJobs, currentModelConfig])
+    const known = JOB_TYPES.map(j => j.type)
+    return [...map.values()].sort(
+      (a, b) => (known.indexOf(a.type) + 1 || 99) - (known.indexOf(b.type) + 1 || 99)
+    )
+  }, [filteredJobs, currentModelConfig, modelRates])
 
   // Daily Cost Ledger Aggregation
   const dailyCostLedger = useMemo(() => {
@@ -381,7 +414,7 @@ const OCRJobsView = ({ addLog }) => {
       if (j.token_usage) {
         map[dateKey].inputTokens += j.token_usage.input_tokens || 0
         map[dateKey].outputTokens += j.token_usage.output_tokens || 0
-        map[dateKey].totalCostUSD += calculateJobCostUSD(j.token_usage, currentModelConfig)
+        map[dateKey].totalCostUSD += calculateJobCostUSD(j.token_usage, currentModelConfig, modelRates)
       }
     })
 
@@ -407,7 +440,7 @@ const OCRJobsView = ({ addLog }) => {
       key: 'total',
       label: 'Filtered jobs',
       value: stats.total.toLocaleString('en-IN'),
-      meta: `${stats.extractResultsCount} extract · ${stats.processLobbyCount} lobby`,
+      meta: `${stats.extractResultsCount} extract · ${stats.processLobbyCount} lobby · ${stats.extractTeamsCount} teams`,
       icon: Layers,
       tone: 'violet',
     },
@@ -637,7 +670,7 @@ const OCRJobsView = ({ addLog }) => {
                 <div key={split.type} className="job-split-card">
                   <div className="job-split-head">
                     <span className="job-split-icon">
-                      {split.type === 'extract_results' ? <FileText size={16} /> : <Cpu size={16} />}
+                      {split.type.startsWith('extract') ? <FileText size={16} /> : <Cpu size={16} />}
                     </span>
                     <div>
                       <h4>{split.label}</h4>
@@ -751,8 +784,11 @@ const OCRJobsView = ({ addLog }) => {
               onChange={e => setJobTypeFilter(e.target.value)}
             >
               <option value="all">All types ({jobs.length})</option>
-              <option value="extract_results">extract_results ({stats.extractResultsCount})</option>
-              <option value="process_lobby">process_lobby ({stats.processLobbyCount})</option>
+              {JOB_TYPES.map(jt => (
+                <option key={jt.type} value={jt.type}>
+                  {jt.type} ({jobs.filter(j => j.job_type === jt.type).length})
+                </option>
+              ))}
             </select>
           </div>
 
@@ -764,8 +800,9 @@ const OCRJobsView = ({ addLog }) => {
               onChange={e => setStatusFilter(e.target.value)}
             >
               <option value="all">All statuses</option>
-              <option value="done">Done ({stats.doneCount})</option>
-              <option value="failed">Failed ({stats.failedCount})</option>
+              {JOB_STATUSES.map(s => (
+                <option key={s} value={s}>{s} ({jobs.filter(j => j.status === s).length})</option>
+              ))}
             </select>
           </div>
         </div>
@@ -829,7 +866,7 @@ const OCRJobsView = ({ addLog }) => {
                         <span className={`job-status-chip status-${job.status}`}>
                           {job.status === 'done' && <CheckCircle2 size={12} />}
                           {job.status === 'failed' && <AlertTriangle size={12} />}
-                          {job.status === 'processing' && <Clock size={12} />}
+                          {(job.status === 'running' || job.status === 'pending') && <Clock size={12} />}
                           {job.status}
                         </span>
                       </td>
@@ -953,12 +990,23 @@ const OCRJobsView = ({ addLog }) => {
                   </div>
                   <div className="job-usage-stat">
                     <span><Coins size={12} /> Cost</span>
-                    <strong className="tone-cost">{formatCost(calculateJobCostUSD(selectedJob.token_usage, currentModelConfig))}</strong>
+                    <strong className="tone-cost">{formatCost(calculateJobCostUSD(selectedJob.token_usage, currentModelConfig, modelRates))}</strong>
                   </div>
                 </div>
                 <div className="job-usage-note">
                   <Info size={12} />
-                  <span>{currentModelConfig.name}: {formatRate(currentModelConfig.inputRate)} / 1M input · {formatRate(currentModelConfig.outputRate)} / 1M output{currency === 'INR' ? ` (₹${inrRate.toFixed(2)}/USD)` : ''}</span>
+                  <span>
+                    {selectedJob.token_usage?.cost_usd > 0
+                      ? <>Engine-stamped cost from OpenRouter{selectedJob.token_usage?.model ? <> (model <strong>{selectedJob.token_usage.model}</strong>)</> : null}</>
+                      : <>
+                          Estimated{selectedJob.token_usage?.model
+                            ? <> at <strong>{selectedJob.token_usage.model}</strong>'s live rate{modelRates[selectedJob.token_usage.model] ? '' : ' (rate unavailable — shown at selected model)'}</>
+                            : <> at the selected model's rate (job carries no model stamp)</>}
+                          : {currentModelConfig.name}: {formatRate(currentModelConfig.inputRate)} / 1M input · {formatRate(currentModelConfig.outputRate)} / 1M output
+                        </>
+                    }
+                    {currency === 'INR' ? ` (₹${inrRate.toFixed(2)}/USD)` : ''}
+                  </span>
                 </div>
               </div>
 
