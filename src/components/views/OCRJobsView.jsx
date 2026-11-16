@@ -10,10 +10,12 @@ import {
 import './OCRJobsView.css'
 
 // The two models the backend actually uses (per-token pricing per 1M USD).
-// Everything else was removed on Praneeth's call — the selector mirrors reality.
+// The selector mirrors reality. GLM-5.3-flash won the 2026-11-17 bake-off:
+// better accuracy than qwen3.7-flash (10/11 vs 9/11 exact elim-sums) at 4.3x
+// lower cost per extraction.
 export const OPENROUTER_MODELS = [
   // V3_MODEL in routes/ocr.py — the vision LLM for extract-results / process-lobby
-  { id: 'qwen/qwen3.7-flash', name: 'Qwen 3.7 Flash (LLM — default)', inputRate: 0.03, outputRate: 0.13 },
+  { id: 'z-ai/glm-5.3-flash', name: 'GLM 5.3 Flash (LLM — default)', inputRate: 0.0399, outputRate: 0.0784 },
   // The lobby separator's entity-extraction model (extract_teams + cell prep)
   { id: 'scaledown/extract', name: 'ScaleDown Extract (separator)', inputRate: 0.04, outputRate: 0 },
 ]
@@ -72,7 +74,7 @@ const OCRJobsView = ({ addLog }) => {
   // Currency & OpenRouter Model Selection (Defaulting to INR ₹ & Qwen 3.7 Flash)
   const [currency, setCurrency] = useState('INR') // 'INR' or 'USD'
   const [inrRate, setInrRate] = useState(87.0)
-  const [selectedModelId, setSelectedModelId] = useState('qwen/qwen3.7-flash')
+  const [selectedModelId, setSelectedModelId] = useState('z-ai/glm-5.3-flash')
   const [openRouterModels, setOpenRouterModels] = useState(OPENROUTER_MODELS)
   const [livePricingLoaded, setLivePricingLoaded] = useState(false)
   // id → {inputRate, outputRate} — seeded with the configured models so each
