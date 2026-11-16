@@ -996,16 +996,23 @@ const OCRJobsView = ({ addLog }) => {
                 <div className="job-usage-note">
                   <Info size={12} />
                   <span>
-                    {selectedJob.token_usage?.cost_usd > 0
-                      ? <>Engine-stamped cost from OpenRouter{selectedJob.token_usage?.model ? <> (model <strong>{selectedJob.token_usage.model}</strong>)</> : null}</>
-                      : <>
-                          Estimated{selectedJob.token_usage?.model
-                            ? <> at <strong>{selectedJob.token_usage.model}</strong>'s live rate{modelRates[selectedJob.token_usage.model] ? '' : ' (rate unavailable — shown at selected model)'}</>
-                            : <> at the selected model's rate (job carries no model stamp)</>}
-                          : {currentModelConfig.name}: {formatRate(currentModelConfig.inputRate)} / 1M input · {formatRate(currentModelConfig.outputRate)} / 1M output
-                        </>
-                    }
-                    {currency === 'INR' ? ` (₹${inrRate.toFixed(2)}/USD)` : ''}
+                    {(() => {
+                      const tu = selectedJob.token_usage || {}
+                      const inr = currency === 'INR'
+                      if (tu.cost_usd > 0) {
+                        return <>Engine-stamped cost from OpenRouter{tu.model ? <> (model <strong>{tu.model}</strong>)</> : null}{inr ? ` (₹${inrRate.toFixed(2)}/USD)` : ''}</>
+                      }
+                      const jobRates = tu.model ? modelRates[tu.model] : null
+                      const rates = jobRates || currentModelConfig
+                      const rateTxt = `${formatRate(rates.inputRate)} / 1M input · ${formatRate(rates.outputRate)} / 1M output${inr ? ` (₹${inrRate.toFixed(2)}/USD)` : ''}`
+                      if (tu.model && jobRates) {
+                        return <>Estimated at <strong>{tu.model}</strong>'s live rate: {rateTxt}</>
+                      }
+                      if (tu.model) {
+                        return <>Estimated at the selected model's rate (<strong>{tu.model}</strong> not in the live rate list): {rateTxt}</>
+                      }
+                      return <>Estimated at the selected model's rate (job carries no model stamp): {rateTxt}</>
+                    })()}
                   </span>
                 </div>
               </div>
