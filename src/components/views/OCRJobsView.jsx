@@ -834,6 +834,7 @@ const OCRJobsView = ({ addLog }) => {
               <thead>
                 <tr>
                   <th>Job Type</th>
+                  <th>Model</th>
                   <th>Status</th>
                   <th>Lobby</th>
                   <th>User / Organizer</th>
@@ -852,7 +853,8 @@ const OCRJobsView = ({ addLog }) => {
 
                   const inputTokens = job.token_usage?.input_tokens || 0
                   const outputTokens = job.token_usage?.output_tokens || 0
-                  const jobCostUSD = calculateJobCostUSD(job.token_usage, currentModelConfig)
+                  const jobCostUSD = calculateJobCostUSD(job.token_usage, currentModelConfig, modelRates)
+                  const jobModel = job.token_usage?.model
 
                   return (
                     <tr key={job.id} className={isFailed ? 'row-failed' : ''}>
@@ -860,6 +862,11 @@ const OCRJobsView = ({ addLog }) => {
                         <span className={`job-type-chip chip-${job.job_type}`}>
                           {job.job_type === 'extract_results' ? <FileText size={12} /> : <Cpu size={12} />}
                           {job.job_type}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="job-model-pill" title={jobModel || 'No model stamp on this job'}>
+                          {jobModel || '—'}
                         </span>
                       </td>
                       <td>

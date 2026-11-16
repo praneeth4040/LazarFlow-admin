@@ -854,6 +854,23 @@
 .job-token-pill.out { background: rgba(13, 148, 136, 0.12); color: #0f766e; }
 .job-token-pill.cost { background: rgba(124, 58, 237, 0.10); color: #6d28d9; }
 
+/* Model column — the job's own stamped model id */
+.job-model-pill {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-secondary, #f1f5f9);
+  border: 1px solid var(--border-default, #e2e8f0);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--text-secondary, #475569);
+}
+
 .job-time-cell {
   font-size: 11.5px;
   color: var(--text-secondary);
