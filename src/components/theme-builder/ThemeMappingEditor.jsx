@@ -12,6 +12,7 @@ import {
   COLUMNS_BY_TYPE, EXTRA_COLUMNS_BY_TYPE, DUMMY_ROWS_BY_TYPE,
   makeEmptyMappingConfig,
 } from '../../constants/themeConstants'
+import { FontPicker } from './FontPicker'
 import AskAiModal from './AskAiModal'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1015,18 +1016,12 @@ const CellInspector = ({ selected, config, onUpdate, onCopyLayout, onApplySpacin
           </div>
           <div className="me-insp-field">
             <label className="me-insp-label">Family</label>
-            <div className="me-insp-size-row">
-              <select className="me-insp-select" value={effectiveFont} disabled={skipped}
-                onChange={e => set({ font_path: e.target.value === sbFont ? undefined : e.target.value })}>
-                {FONT_OPTIONS.map(f => (
-                  <option key={f} value={f}>{f.replace('.ttf', '').replace(/([A-Z])/g, ' $1').trim()}</option>
-                ))}
-              </select>
-              {coords?.font_path && (
-                <button className="me-insp-reset-btn" title="Reset" aria-label="Reset"
-                  onClick={() => set({ font_path: undefined })}><RotateCcw size={12} /></button>
-              )}
-            </div>
+            <FontPicker
+              value={coords?.font_path ?? null}
+              sbFont={sbFont}
+              disabled={skipped}
+              onChange={(fp) => set({ font_path: fp === sbFont ? undefined : fp })}
+            />
             {!coords?.font_path && <span className="me-insp-inherited">Inherited from scoreboard</span>}
           </div>
         </div>
